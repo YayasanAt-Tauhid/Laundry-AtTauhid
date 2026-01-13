@@ -17,6 +17,8 @@ interface PaymentRequest {
     customerEmail?: string;
     customerPhone?: string;
     customerName?: string;
+    adminFee?: number;
+    enabledPayments?: string[];
 }
 
 serve(async (req) => {
@@ -33,30 +35,50 @@ serve(async (req) => {
             throw new Error('Midtrans Server Key not configured')
         }
 
-        const { orderId, grossAmount, studentName, category, customerEmail, customerPhone, customerName }: PaymentRequest = await req.json()
+        const { orderId, grossAmount, studentName, category, customerEmail, customerPhone, customerName, adminFee = 0, enabledPayments }: PaymentRequest = await req.json()
 
         // Generate unique order ID for Midtrans
         const midtransOrderId = `LAUNDRY-${orderId.substring(0, 8)}-${Date.now()}`
 
+        // Calculate total with admin fee
+        const totalWithFee = grossAmount + adminFee
+
+        // Prepare item details - only add admin fee if > 0
+        const itemDetails: any[] = [
+            {
+                id: orderId,
+                price: grossAmount,
+                quantity: 1,
+                name: `Laundry ${category} - ${studentName}`.substring(0, 50),
+            },
+        ]
+
+        if (adminFee > 0) {
+            itemDetails.push({
+                id: 'ADMIN_FEE',
+                price: adminFee,
+                quantity: 1,
+                name: 'Biaya Admin',
+            })
+        }
+
         // Prepare Midtrans transaction data
-        const transactionData = {
+        const transactionData: any = {
             transaction_details: {
                 order_id: midtransOrderId,
-                gross_amount: grossAmount,
+                gross_amount: totalWithFee,
             },
-            item_details: [
-                {
-                    id: orderId,
-                    price: grossAmount,
-                    quantity: 1,
-                    name: `Laundry ${category} - ${studentName}`,
-                },
-            ],
+            item_details: itemDetails,
             customer_details: {
                 first_name: customerName || 'Customer',
                 email: customerEmail || 'customer@example.com',
                 phone: customerPhone || '',
             },
+        }
+
+        // Add enabled payment methods if provided
+        if (enabledPayments && enabledPayments.length > 0) {
+            transactionData.enabled_payments = enabledPayments
         }
 
         // Call Midtrans Snap API
@@ -83,7 +105,7 @@ serve(async (req) => {
             throw new Error(midtransResult.error_messages?.join(', ') || 'Failed to create payment')
         }
 
-        // Update the order with midtrans info
+        // Update the order with midtrans info and admin fee
         const supabaseUrl = Deno.env.get('SUPABASE_URL')!
         const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
         const supabase = createClient(supabaseUrl, supabaseServiceKey)
@@ -94,6 +116,7 @@ serve(async (req) => {
                 midtrans_order_id: midtransOrderId,
                 midtrans_snap_token: midtransResult.token,
                 status: 'MENUNGGU_PEMBAYARAN',
+                admin_fee: adminFee,
             })
             .eq('id', orderId)
 
