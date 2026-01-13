@@ -28,6 +28,8 @@ import {
     Clock,
     CheckCircle2,
     Printer,
+    ChevronLeft,
+    ChevronRight,
 } from 'lucide-react';
 import { LAUNDRY_CATEGORIES } from '@/lib/constants';
 import {
@@ -77,6 +79,8 @@ interface SummaryData {
     byClass: Record<string, { count: number; amount: number }>;
 }
 
+const PAGE_SIZE = 20;
+
 export default function CashierReports() {
     const { toast } = useToast();
     const { profile } = useAuth();
@@ -92,15 +96,14 @@ export default function CashierReports() {
         byCategory: {},
         byClass: {},
     });
+    const [totalCount, setTotalCount] = useState(0);
     const [period, setPeriod] = useState('today');
     const [searchQuery, setSearchQuery] = useState('');
     const [filterPaymentMethod, setFilterPaymentMethod] = useState<string>('all');
     const [selectedPayment, setSelectedPayment] = useState<PaymentRecord | null>(null);
     const [showDetailModal, setShowDetailModal] = useState(false);
+    const [currentPage, setCurrentPage] = useState(0);
 
-    useEffect(() => {
-        fetchPayments();
-    }, [period]);
 
     const getDateRange = () => {
         const now = new Date();
@@ -132,82 +135,128 @@ export default function CashierReports() {
         setLoading(true);
         try {
             const { startDate, endDate } = getDateRange();
+            const from = currentPage * PAGE_SIZE;
+            const to = from + PAGE_SIZE - 1;
 
+            // 1. Fetch Paginated Data
             let query = supabase
                 .from('laundry_orders')
                 .select(`
-          id,
-          category,
-          weight_kg,
-          item_count,
-          total_price,
-          admin_fee,
-          payment_method,
-          status,
-          paid_at,
-          created_at,
-          students (id, name, class),
-          laundry_partners (name)
-        `)
+                  id,
+                  category,
+                  weight_kg,
+                  item_count,
+                  total_price,
+                  admin_fee,
+                  payment_method,
+                  status,
+                  paid_at,
+                  created_at,
+                  students!inner (id, name, class),
+                  laundry_partners (name)
+                `, { count: 'exact' })
                 .in('status', ['DIBAYAR', 'SELESAI'])
                 .not('paid_at', 'is', null)
                 .order('paid_at', { ascending: false });
 
+            // Apply filters to main query
             if (period !== 'all') {
                 query = query
                     .gte('paid_at', startDate.toISOString())
                     .lt('paid_at', endDate.toISOString());
             }
 
-            const { data, error } = await query;
+            if (filterPaymentMethod !== 'all') {
+                query = query.eq('payment_method', filterPaymentMethod);
+            }
+
+            if (searchQuery) {
+                query = query.or(`name.ilike.%${searchQuery}%,class.ilike.%${searchQuery}%`, { foreignTable: 'students' });
+            }
+
+            const { data, error, count } = await query.range(from, to);
 
             if (error) throw error;
 
-            const paymentsData = (data || []) as PaymentRecord[];
+            const paymentsData = (data || []) as any[];
             setPayments(paymentsData);
+            setTotalCount(count || 0);
 
-            // Calculate summary
-            const summaryData: SummaryData = {
-                totalTransactions: paymentsData.length,
-                totalAmount: 0,
-                cashTransactions: 0,
-                cashAmount: 0,
-                transferTransactions: 0,
-                transferAmount: 0,
-                byCategory: {},
-                byClass: {},
-            };
+            // 2. Calculate Summary (Need specific fields from ALL matching rows)
+            // We create a separate query with the same filters but no range/pagination
+            let summaryQuery = supabase
+                .from('laundry_orders')
+                .select(`
+                    total_price,
+                    payment_method,
+                    category,
+                    students!inner (class)
+                `)
+                .in('status', ['DIBAYAR', 'SELESAI'])
+                .not('paid_at', 'is', null);
 
-            paymentsData.forEach((payment) => {
-                summaryData.totalAmount += payment.total_price;
+            if (period !== 'all') {
+                summaryQuery = summaryQuery
+                    .gte('paid_at', startDate.toISOString())
+                    .lt('paid_at', endDate.toISOString());
+            }
 
-                // By payment method
-                if (payment.payment_method === 'cash') {
-                    summaryData.cashTransactions++;
-                    summaryData.cashAmount += payment.total_price;
-                } else {
-                    summaryData.transferTransactions++;
-                    summaryData.transferAmount += payment.total_price;
-                }
+            if (filterPaymentMethod !== 'all') {
+                summaryQuery = summaryQuery.eq('payment_method', filterPaymentMethod);
+            }
 
-                // By category
-                const cat = payment.category;
-                if (!summaryData.byCategory[cat]) {
-                    summaryData.byCategory[cat] = { count: 0, amount: 0 };
-                }
-                summaryData.byCategory[cat].count++;
-                summaryData.byCategory[cat].amount += payment.total_price;
+            if (searchQuery) {
+                summaryQuery = summaryQuery.or(`name.ilike.%${searchQuery}%,class.ilike.%${searchQuery}%`, { foreignTable: 'students' });
+            }
 
-                // By class
-                const cls = payment.students?.class || 'Unknown';
-                if (!summaryData.byClass[cls]) {
-                    summaryData.byClass[cls] = { count: 0, amount: 0 };
-                }
-                summaryData.byClass[cls].count++;
-                summaryData.byClass[cls].amount += payment.total_price;
-            });
+            const { data: summaryRows, error: summaryError } = await summaryQuery;
 
-            setSummary(summaryData);
+            if (summaryError) {
+                console.error('Error fetching summary:', summaryError);
+            } else {
+                const currentSummary: SummaryData = {
+                    totalTransactions: summaryRows?.length || 0,
+                    totalAmount: 0,
+                    cashTransactions: 0,
+                    cashAmount: 0,
+                    transferTransactions: 0,
+                    transferAmount: 0,
+                    byCategory: {},
+                    byClass: {},
+                };
+
+                (summaryRows || []).forEach((payment: any) => {
+                    currentSummary.totalAmount += payment.total_price;
+
+                    // By payment method
+                    if (payment.payment_method === 'cash') {
+                        currentSummary.cashTransactions++;
+                        currentSummary.cashAmount += payment.total_price;
+                    } else {
+                        currentSummary.transferTransactions++;
+                        currentSummary.transferAmount += payment.total_price;
+                    }
+
+                    // By category
+                    const cat = payment.category;
+                    if (!currentSummary.byCategory[cat]) {
+                        currentSummary.byCategory[cat] = { count: 0, amount: 0 };
+                    }
+                    currentSummary.byCategory[cat].count++;
+                    currentSummary.byCategory[cat].amount += payment.total_price;
+
+                    // By class
+                    const cls = payment.students?.class || 'Unknown';
+                    if (!currentSummary.byClass[cls]) {
+                        currentSummary.byClass[cls] = { count: 0, amount: 0 };
+                    }
+                    currentSummary.byClass[cls].count++;
+                    currentSummary.byClass[cls].amount += payment.total_price;
+                });
+
+                setSummary(currentSummary);
+            }
+
         } catch (error) {
             console.error('Error fetching payments:', error);
             toast({
@@ -219,6 +268,10 @@ export default function CashierReports() {
             setLoading(false);
         }
     };
+
+    useEffect(() => {
+        fetchPayments();
+    }, [period, currentPage, filterPaymentMethod, searchQuery]); // Re-fetch on any filter change
 
     const formatCurrency = (amount: number) => {
         return new Intl.NumberFormat('id-ID', {
@@ -253,15 +306,10 @@ export default function CashierReports() {
         });
     };
 
-    // Filter payments
-    const filteredPayments = payments.filter((payment) => {
-        const matchesSearch =
-            payment.students?.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            payment.students?.class.toLowerCase().includes(searchQuery.toLowerCase());
-        const matchesMethod =
-            filterPaymentMethod === 'all' || payment.payment_method === filterPaymentMethod;
-        return matchesSearch && matchesMethod;
-    });
+    /* Client-side filter removed in favor of Server-side filter */
+
+
+
 
     const handleViewDetail = (payment: PaymentRecord) => {
         setSelectedPayment(payment);
@@ -270,7 +318,8 @@ export default function CashierReports() {
 
     const handleExportCSV = () => {
         const headers = ['Tanggal', 'Jam', 'Siswa', 'Kelas', 'Kategori', 'Jumlah', 'Total', 'Metode'];
-        const rows = filteredPayments.map((p) => [
+        // NOTE: Currently exports only visible page. Should be enhanced to fetch all.
+        const rows = payments.map((p) => [
             formatDate(p.paid_at),
             formatTime(p.paid_at),
             p.students?.name || '-',
@@ -415,7 +464,7 @@ export default function CashierReports() {
             </div>
           </div>
 
-          <h3>Detail Transaksi (${filteredPayments.length} transaksi)</h3>
+          <h3>Detail Transaksi ({totalCount} transaksi - Halaman ini)</h3>
           <table>
             <thead>
               <tr>
@@ -430,7 +479,7 @@ export default function CashierReports() {
               </tr>
             </thead>
             <tbody>
-              ${filteredPayments
+              ${payments
                 .map(
                     (p, idx) => `
                 <tr>
@@ -481,7 +530,7 @@ export default function CashierReports() {
                     </div>
 
                     <div className="flex items-center gap-3">
-                        <Select value={period} onValueChange={setPeriod}>
+                        <Select value={period} onValueChange={(val) => { setPeriod(val); setCurrentPage(0); }}>
                             <SelectTrigger className="w-44">
                                 <Calendar className="h-4 w-4 mr-2" />
                                 <SelectValue placeholder="Periode" />
@@ -660,11 +709,11 @@ export default function CashierReports() {
                                         <Input
                                             placeholder="Cari nama siswa atau kelas..."
                                             value={searchQuery}
-                                            onChange={(e) => setSearchQuery(e.target.value)}
+                                            onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(0); }}
                                             className="pl-10"
                                         />
                                     </div>
-                                    <Select value={filterPaymentMethod} onValueChange={setFilterPaymentMethod}>
+                                    <Select value={filterPaymentMethod} onValueChange={(val) => { setFilterPaymentMethod(val); setCurrentPage(0); }}>
                                         <SelectTrigger className="w-full md:w-48">
                                             <SelectValue placeholder="Metode Pembayaran" />
                                         </SelectTrigger>
@@ -683,11 +732,11 @@ export default function CashierReports() {
                             <CardHeader>
                                 <CardTitle className="text-lg flex items-center gap-2">
                                     <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-                                    Riwayat Transaksi ({filteredPayments.length})
+                                    Riwayat Transaksi ({totalCount})
                                 </CardTitle>
                             </CardHeader>
                             <CardContent>
-                                {filteredPayments.length === 0 ? (
+                                {payments.length === 0 ? (
                                     <div className="flex flex-col items-center justify-center py-12">
                                         <DollarSign className="h-16 w-16 text-muted-foreground/30 mb-4" />
                                         <h3 className="text-lg font-medium text-foreground mb-2">
@@ -698,110 +747,143 @@ export default function CashierReports() {
                                         </p>
                                     </div>
                                 ) : (
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full">
-                                            <thead>
-                                                <tr className="border-b">
-                                                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">
-                                                        Waktu
-                                                    </th>
-                                                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">
-                                                        Siswa
-                                                    </th>
-                                                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">
-                                                        Kategori
-                                                    </th>
-                                                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">
-                                                        Jumlah
-                                                    </th>
-                                                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">
-                                                        Total
-                                                    </th>
-                                                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">
-                                                        Metode
-                                                    </th>
-                                                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">
-                                                        Aksi
-                                                    </th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {filteredPayments.map((payment) => (
-                                                    <tr key={payment.id} className="border-b hover:bg-muted/50 transition-colors">
-                                                        <td className="py-3 px-4">
-                                                            <div className="flex items-center gap-2">
-                                                                <Clock className="h-4 w-4 text-muted-foreground" />
-                                                                <div>
-                                                                    <p className="text-sm font-medium">
-                                                                        {formatDate(payment.paid_at)}
-                                                                    </p>
-                                                                    <p className="text-xs text-muted-foreground">
-                                                                        {formatTime(payment.paid_at)}
-                                                                    </p>
+                                    <>
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full">
+                                                <thead>
+                                                    <tr className="border-b">
+                                                        <th className="text-left py-3 px-4 font-medium text-muted-foreground">
+                                                            Waktu
+                                                        </th>
+                                                        <th className="text-left py-3 px-4 font-medium text-muted-foreground">
+                                                            Siswa
+                                                        </th>
+                                                        <th className="text-left py-3 px-4 font-medium text-muted-foreground">
+                                                            Kategori
+                                                        </th>
+                                                        <th className="text-left py-3 px-4 font-medium text-muted-foreground">
+                                                            Jumlah
+                                                        </th>
+                                                        <th className="text-left py-3 px-4 font-medium text-muted-foreground">
+                                                            Total
+                                                        </th>
+                                                        <th className="text-left py-3 px-4 font-medium text-muted-foreground">
+                                                            Metode
+                                                        </th>
+                                                        <th className="text-left py-3 px-4 font-medium text-muted-foreground">
+                                                            Aksi
+                                                        </th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {payments.map((payment) => (
+                                                        <tr key={payment.id} className="border-b hover:bg-muted/50 transition-colors">
+                                                            <td className="py-3 px-4">
+                                                                <div className="flex items-center gap-2">
+                                                                    <Clock className="h-4 w-4 text-muted-foreground" />
+                                                                    <div>
+                                                                        <p className="text-sm font-medium">
+                                                                            {formatDate(payment.paid_at)}
+                                                                        </p>
+                                                                        <p className="text-xs text-muted-foreground">
+                                                                            {formatTime(payment.paid_at)}
+                                                                        </p>
+                                                                    </div>
                                                                 </div>
-                                                            </div>
-                                                        </td>
-                                                        <td className="py-3 px-4">
-                                                            <div className="flex items-center gap-2">
-                                                                <User className="h-4 w-4 text-muted-foreground" />
-                                                                <div>
-                                                                    <p className="font-medium">{payment.students?.name || '-'}</p>
-                                                                    <p className="text-xs text-muted-foreground">
-                                                                        Kelas {payment.students?.class || '-'}
-                                                                    </p>
+                                                            </td>
+                                                            <td className="py-3 px-4">
+                                                                <div className="flex items-center gap-2">
+                                                                    <User className="h-4 w-4 text-muted-foreground" />
+                                                                    <div>
+                                                                        <p className="font-medium">{payment.students?.name || '-'}</p>
+                                                                        <p className="text-xs text-muted-foreground">
+                                                                            Kelas {payment.students?.class || '-'}
+                                                                        </p>
+                                                                    </div>
                                                                 </div>
-                                                            </div>
-                                                        </td>
-                                                        <td className="py-3 px-4">
-                                                            <span className="px-2 py-1 bg-primary/10 text-primary rounded-md text-sm">
-                                                                {LAUNDRY_CATEGORIES[payment.category as keyof typeof LAUNDRY_CATEGORIES]?.label ||
-                                                                    payment.category}
-                                                            </span>
-                                                        </td>
-                                                        <td className="py-3 px-4 text-sm">
-                                                            {payment.category === 'kiloan'
-                                                                ? `${payment.weight_kg} kg`
-                                                                : `${payment.item_count} pcs`}
-                                                        </td>
-                                                        <td className="py-3 px-4">
-                                                            <p className="font-bold text-emerald-600">
-                                                                {formatCurrency(payment.total_price)}
-                                                            </p>
-                                                        </td>
-                                                        <td className="py-3 px-4">
-                                                            <span
-                                                                className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${payment.payment_method === 'cash'
+                                                            </td>
+                                                            <td className="py-3 px-4">
+                                                                <span className="px-2 py-1 bg-primary/10 text-primary rounded-md text-sm">
+                                                                    {LAUNDRY_CATEGORIES[payment.category as keyof typeof LAUNDRY_CATEGORIES]?.label ||
+                                                                        payment.category}
+                                                                </span>
+                                                            </td>
+                                                            <td className="py-3 px-4 text-sm">
+                                                                {payment.category === 'kiloan'
+                                                                    ? `${payment.weight_kg} kg`
+                                                                    : `${payment.item_count} pcs`}
+                                                            </td>
+                                                            <td className="py-3 px-4">
+                                                                <p className="font-bold text-emerald-600">
+                                                                    {formatCurrency(payment.total_price)}
+                                                                </p>
+                                                            </td>
+                                                            <td className="py-3 px-4">
+                                                                <span
+                                                                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${payment.payment_method === 'cash'
                                                                         ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
                                                                         : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-                                                                    }`}
-                                                            >
-                                                                {payment.payment_method === 'cash' ? (
-                                                                    <>
-                                                                        <Banknote className="h-3 w-3" />
-                                                                        Tunai
-                                                                    </>
-                                                                ) : (
-                                                                    <>
-                                                                        <CreditCard className="h-3 w-3" />
-                                                                        Transfer
-                                                                    </>
-                                                                )}
-                                                            </span>
-                                                        </td>
-                                                        <td className="py-3 px-4">
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                onClick={() => handleViewDetail(payment)}
-                                                            >
-                                                                Detail
-                                                            </Button>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
+                                                                        }`}
+                                                                >
+                                                                    {payment.payment_method === 'cash' ? (
+                                                                        <>
+                                                                            <Banknote className="h-3 w-3" />
+                                                                            Tunai
+                                                                        </>
+                                                                    ) : (
+                                                                        <>
+                                                                            <CreditCard className="h-3 w-3" />
+                                                                            Transfer
+                                                                        </>
+                                                                    )}
+                                                                </span>
+                                                            </td>
+                                                            <td className="py-3 px-4">
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    onClick={() => handleViewDetail(payment)}
+                                                                >
+                                                                    Detail
+                                                                </Button>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        {/* Pagination */}
+                                        {totalCount > PAGE_SIZE && (
+                                            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-4 py-4 border-t border-border">
+                                                <div className="text-sm text-muted-foreground">
+                                                    Menampilkan {currentPage * PAGE_SIZE + 1} - {Math.min((currentPage + 1) * PAGE_SIZE, totalCount)} dari {totalCount} transaksi
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={() => setCurrentPage((p) => Math.max(0, p - 1))}
+                                                        disabled={currentPage === 0}
+                                                    >
+                                                        <ChevronLeft className="h-4 w-4 mr-1" />
+                                                        Sebelumnya
+                                                    </Button>
+                                                    <div className="flex items-center gap-1 px-3 py-1 rounded-md bg-muted text-sm font-medium">
+                                                        Halaman {currentPage + 1} dari {Math.ceil(totalCount / PAGE_SIZE)}
+                                                    </div>
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={() => setCurrentPage((p) => p + 1)}
+                                                        disabled={(currentPage + 1) * PAGE_SIZE >= totalCount}
+                                                    >
+                                                        Selanjutnya
+                                                        <ChevronRight className="h-4 w-4 ml-1" />
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
                                 )}
                             </CardContent>
                         </Card>

@@ -90,11 +90,13 @@ export default function CashierPOS() {
     const { profile } = useAuth();
     const { confirmPaymentManually, isProcessing } = useMidtrans();
     const [bills, setBills] = useState<Bill[]>([]);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [filterClass, setFilterClass] = useState<string>('all');
     const [selectedBills, setSelectedBills] = useState<Set<string>>(new Set());
     const [processingPayment, setProcessingPayment] = useState(false);
+    const [hasSearched, setHasSearched] = useState(false);
+    const [allClasses, setAllClasses] = useState<string[]>([]);
 
     // Payment modal states
     const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -105,27 +107,75 @@ export default function CashierPOS() {
 
     const receiptRef = useRef<HTMLDivElement>(null);
 
+    // Fetch available classes on mount (lightweight query)
     useEffect(() => {
-        fetchBills();
+        const fetchClasses = async () => {
+            const { data } = await supabase
+                .from('students')
+                .select('class')
+                .order('class');
+            if (data) {
+                const uniqueClasses = [...new Set(data.map(s => s.class).filter(Boolean))];
+                setAllClasses(uniqueClasses as string[]);
+            }
+        };
+        fetchClasses();
     }, []);
 
-    const fetchBills = async () => {
+    const searchBills = async (query: string, classFilter: string) => {
+        // Require at least search query or class filter
+        if (!query.trim() && classFilter === 'all') {
+            toast({
+                variant: 'destructive',
+                title: 'Masukkan pencarian',
+                description: 'Cari nama siswa atau pilih kelas terlebih dahulu',
+            });
+            return;
+        }
+
+        setLoading(true);
+        setHasSearched(true);
+        setSelectedBills(new Set());
+
         try {
+            // First, find matching students
+            let studentQuery = supabase.from('students').select('id');
+
+            if (query.trim()) {
+                studentQuery = studentQuery.ilike('name', `%${query.trim()}%`);
+            }
+            if (classFilter !== 'all') {
+                studentQuery = studentQuery.eq('class', classFilter);
+            }
+
+            const { data: students, error: studentError } = await studentQuery;
+            if (studentError) throw studentError;
+
+            if (!students || students.length === 0) {
+                setBills([]);
+                setLoading(false);
+                return;
+            }
+
+            const studentIds = students.map(s => s.id);
+
+            // Then fetch bills for those students
             const { data, error } = await supabase
                 .from('laundry_orders')
                 .select(`
-          id,
-          category,
-          weight_kg,
-          item_count,
-          total_price,
-          admin_fee,
-          payment_method,
-          status,
-          created_at,
-          students (id, name, class),
-          laundry_partners (name)
-        `)
+                    id,
+                    category,
+                    weight_kg,
+                    item_count,
+                    total_price,
+                    admin_fee,
+                    payment_method,
+                    status,
+                    created_at,
+                    students (id, name, class),
+                    laundry_partners (name)
+                `)
+                .in('student_id', studentIds)
                 .in('status', ['DISETUJUI_MITRA', 'MENUNGGU_PEMBAYARAN'])
                 .order('created_at', { ascending: false });
 
@@ -140,6 +190,23 @@ export default function CashierPOS() {
             });
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleSearch = () => {
+        searchBills(searchQuery, filterClass);
+    };
+
+    const handleKeyPress = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') {
+            handleSearch();
+        }
+    };
+
+    // Refresh bills after payment (re-search with current filters)
+    const refreshBills = () => {
+        if (hasSearched) {
+            searchBills(searchQuery, filterClass);
         }
     };
 
@@ -165,19 +232,8 @@ export default function CashierPOS() {
         return Object.values(groups);
     };
 
-    // Filter bills based on search query and class
-    const filteredBills = bills.filter((bill) => {
-        const matchesSearch =
-            bill.students?.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            bill.students?.class.toLowerCase().includes(searchQuery.toLowerCase());
-        const matchesClass = filterClass === 'all' || bill.students?.class === filterClass;
-        return matchesSearch && matchesClass;
-    });
-
-    const studentGroups = groupBillsByStudent(filteredBills);
-
-    // Get unique classes for filter
-    const uniqueClasses = [...new Set(bills.map((b) => b.students?.class).filter(Boolean))].sort();
+    // Bills are already filtered from the search, just group them
+    const studentGroups = groupBillsByStudent(bills);
 
     // Calculate selected totals
     const selectedBillsList = bills.filter((b) => selectedBills.has(b.id));
@@ -291,7 +347,7 @@ export default function CashierPOS() {
                 });
 
                 // Refresh data and clear selection
-                fetchBills();
+                refreshBills();
                 setSelectedBills(new Set());
             } else {
                 toast({
@@ -420,23 +476,25 @@ export default function CashierPOS() {
                         </p>
                     </div>
 
-                    {/* Quick Stats */}
-                    <div className="flex gap-4">
-                        <Card className="bg-gradient-to-br from-primary/10 to-primary/5 border-primary/20">
-                            <CardContent className="p-4 text-center">
-                                <p className="text-sm text-muted-foreground">Tagihan Aktif</p>
-                                <p className="text-2xl font-bold text-primary">{bills.length}</p>
-                            </CardContent>
-                        </Card>
-                        <Card className="bg-gradient-to-br from-amber-500/10 to-orange-500/5 border-amber-500/20">
-                            <CardContent className="p-4 text-center">
-                                <p className="text-sm text-muted-foreground">Total Tagihan</p>
-                                <p className="text-2xl font-bold text-amber-600">
-                                    {formatCurrency(bills.reduce((s, b) => s + b.total_price, 0))}
-                                </p>
-                            </CardContent>
-                        </Card>
-                    </div>
+                    {/* Quick Stats - only show when searched */}
+                    {hasSearched && bills.length > 0 && (
+                        <div className="flex gap-4">
+                            <Card className="bg-gradient-to-br from-primary/10 to-primary/5 border-primary/20">
+                                <CardContent className="p-4 text-center">
+                                    <p className="text-sm text-muted-foreground">Hasil Pencarian</p>
+                                    <p className="text-2xl font-bold text-primary">{bills.length}</p>
+                                </CardContent>
+                            </Card>
+                            <Card className="bg-gradient-to-br from-amber-500/10 to-orange-500/5 border-amber-500/20">
+                                <CardContent className="p-4 text-center">
+                                    <p className="text-sm text-muted-foreground">Total Tagihan</p>
+                                    <p className="text-2xl font-bold text-amber-600">
+                                        {formatCurrency(bills.reduce((s, b) => s + b.total_price, 0))}
+                                    </p>
+                                </CardContent>
+                            </Card>
+                        </div>
+                    )}
                 </div>
 
                 {/* Search and Filter Bar */}
@@ -446,26 +504,44 @@ export default function CashierPOS() {
                             <div className="relative flex-1">
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                 <Input
-                                    placeholder="Cari nama siswa atau kelas..."
+                                    placeholder="Cari nama siswa..."
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
+                                    onKeyDown={handleKeyPress}
                                     className="pl-10"
                                 />
                             </div>
                             <Select value={filterClass} onValueChange={setFilterClass}>
                                 <SelectTrigger className="w-full md:w-48">
-                                    <SelectValue placeholder="Filter Kelas" />
+                                    <SelectValue placeholder="Pilih Kelas" />
                                 </SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="all">Semua Kelas</SelectItem>
-                                    {uniqueClasses.map((cls) => (
-                                        <SelectItem key={cls} value={cls || ''}>
+                                    {allClasses.map((cls) => (
+                                        <SelectItem key={cls} value={cls}>
                                             {cls}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
+                            <Button
+                                onClick={handleSearch}
+                                disabled={loading}
+                                className="bg-gradient-to-r from-primary to-primary/80"
+                            >
+                                {loading ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                    <>
+                                        <Search className="h-4 w-4 mr-2" />
+                                        Cari
+                                    </>
+                                )}
+                            </Button>
                         </div>
+                        <p className="text-xs text-muted-foreground mt-2">
+                            💡 Masukkan nama siswa atau pilih kelas, lalu tekan Cari atau Enter
+                        </p>
                     </CardContent>
                 </Card>
 
@@ -514,19 +590,29 @@ export default function CashierPOS() {
                     <div className="flex items-center justify-center py-12">
                         <Loader2 className="h-8 w-8 animate-spin text-primary" />
                     </div>
+                ) : !hasSearched ? (
+                    <Card className="dashboard-card bg-gradient-to-br from-muted/50 to-muted/30">
+                        <CardContent className="flex flex-col items-center justify-center py-16">
+                            <div className="p-4 bg-primary/10 rounded-full mb-4">
+                                <Search className="h-12 w-12 text-primary" />
+                            </div>
+                            <h3 className="text-xl font-semibold text-foreground mb-2">
+                                Cari Siswa untuk Memulai
+                            </h3>
+                            <p className="text-muted-foreground text-center max-w-md">
+                                Masukkan nama siswa atau pilih kelas di atas untuk menampilkan tagihan yang perlu dibayar
+                            </p>
+                        </CardContent>
+                    </Card>
                 ) : studentGroups.length === 0 ? (
                     <Card className="dashboard-card">
                         <CardContent className="flex flex-col items-center justify-center py-12">
                             <Receipt className="h-16 w-16 text-muted-foreground/30 mb-4" />
                             <h3 className="text-lg font-medium text-foreground mb-2">
-                                {searchQuery || filterClass !== 'all'
-                                    ? 'Tidak ada tagihan yang cocok'
-                                    : 'Belum ada tagihan'}
+                                Tidak ada tagihan yang cocok
                             </h3>
                             <p className="text-muted-foreground text-center">
-                                {searchQuery || filterClass !== 'all'
-                                    ? 'Coba ubah filter pencarian'
-                                    : 'Tagihan akan muncul setelah order laundry disetujui mitra'}
+                                Tidak ditemukan tagihan untuk pencarian ini. Coba cari nama siswa lain atau pilih kelas yang berbeda.
                             </p>
                         </CardContent>
                     </Card>
@@ -575,8 +661,8 @@ export default function CashierPOS() {
                                                 <div
                                                     key={bill.id}
                                                     className={`flex items-center justify-between p-3 rounded-lg border transition-all ${selectedBills.has(bill.id)
-                                                            ? 'bg-primary/10 border-primary/30'
-                                                            : 'bg-muted/30 border-transparent hover:border-muted'
+                                                        ? 'bg-primary/10 border-primary/30'
+                                                        : 'bg-muted/30 border-transparent hover:border-muted'
                                                         }`}
                                                 >
                                                     <div className="flex items-center gap-3">
@@ -647,8 +733,8 @@ export default function CashierPOS() {
                                     <button
                                         onClick={() => setPaymentMethod('cash')}
                                         className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${paymentMethod === 'cash'
-                                                ? 'border-primary bg-primary/10'
-                                                : 'border-muted hover:border-muted-foreground/30'
+                                            ? 'border-primary bg-primary/10'
+                                            : 'border-muted hover:border-muted-foreground/30'
                                             }`}
                                     >
                                         <Banknote className="h-6 w-6" />
@@ -657,8 +743,8 @@ export default function CashierPOS() {
                                     <button
                                         onClick={() => setPaymentMethod('transfer')}
                                         className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${paymentMethod === 'transfer'
-                                                ? 'border-primary bg-primary/10'
-                                                : 'border-muted hover:border-muted-foreground/30'
+                                            ? 'border-primary bg-primary/10'
+                                            : 'border-muted hover:border-muted-foreground/30'
                                             }`}
                                     >
                                         <CreditCard className="h-6 w-6" />

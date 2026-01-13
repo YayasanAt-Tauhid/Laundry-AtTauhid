@@ -32,7 +32,10 @@ interface Partner {
 }
 
 interface HolidaySetting {
-  is_holiday: boolean;
+  kiloan_yayasan_per_kg: number;
+  kiloan_vendor_per_kg: number;
+  non_kiloan_yayasan_percent: number;
+  non_kiloan_vendor_percent: number;
 }
 
 export default function NewOrder() {
@@ -84,14 +87,21 @@ export default function NewOrder() {
       if (partnersError) throw partnersError;
       setPartners(partnersData || []);
 
-      // Fetch holiday setting
+      // Fetch holiday setting with revenue config
       const { data: holidayData, error: holidayError } = await supabase
         .from('holiday_settings')
-        .select('is_holiday')
+        .select('kiloan_yayasan_per_kg, kiloan_vendor_per_kg, non_kiloan_yayasan_percent, non_kiloan_vendor_percent')
         .single();
 
       if (holidayError && holidayError.code !== 'PGRST116') throw holidayError;
-      setHolidaySetting(holidayData);
+      if (holidayData) {
+        setHolidaySetting({
+          kiloan_yayasan_per_kg: holidayData.kiloan_yayasan_per_kg ?? 2000,
+          kiloan_vendor_per_kg: holidayData.kiloan_vendor_per_kg ?? 5000,
+          non_kiloan_yayasan_percent: holidayData.non_kiloan_yayasan_percent ?? 20,
+          non_kiloan_vendor_percent: holidayData.non_kiloan_vendor_percent ?? 80,
+        });
+      }
     } catch (error) {
       console.error('Error fetching data:', error);
       toast({
@@ -119,28 +129,22 @@ export default function NewOrder() {
 
     const total = isKiloan ? quantity * pricePerUnit : quantity * pricePerUnit;
 
-    // Calculate shares based on holiday setting
-    const isHoliday = holidaySetting?.is_holiday || false;
+    // Get config values from settings (with defaults)
+    const kiloanYayasanPerKg = holidaySetting?.kiloan_yayasan_per_kg ?? 2000;
+    const kiloanVendorPerKg = holidaySetting?.kiloan_vendor_per_kg ?? 5000;
+    const nonKiloanYayasanPercent = holidaySetting?.non_kiloan_yayasan_percent ?? 20;
+    const nonKiloanVendorPercent = holidaySetting?.non_kiloan_vendor_percent ?? 80;
+
     let yayasan = 0;
     let vendor = 0;
 
-    if (!isHoliday) {
-      // Before holiday: Yayasan gets all
-      if (isKiloan) {
-        yayasan = 7000 * quantity;
-      } else {
-        yayasan = total;
-      }
-      vendor = 0;
+    // Calculate shares using config values
+    if (isKiloan) {
+      yayasan = kiloanYayasanPerKg * quantity;
+      vendor = kiloanVendorPerKg * quantity;
     } else {
-      // After holiday: Split
-      if (isKiloan) {
-        yayasan = 2000 * quantity;
-        vendor = 5000 * quantity;
-      } else {
-        yayasan = Math.round(total * 0.2);
-        vendor = Math.round(total * 0.8);
-      }
+      yayasan = Math.round(total * (nonKiloanYayasanPercent / 100));
+      vendor = Math.round(total * (nonKiloanVendorPercent / 100));
     }
 
     return { total, yayasan, vendor };
@@ -444,9 +448,6 @@ export default function NewOrder() {
                         <p className="font-bold">{formatCurrency(prices.vendor)}</p>
                       </div>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-2">
-                      * {holidaySetting?.is_holiday ? 'Mode Liburan' : 'Mode Normal'}
-                    </p>
                   </div>
                 </div>
               )}

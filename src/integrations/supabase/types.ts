@@ -53,18 +53,30 @@ export type Database = {
           is_holiday: boolean
           updated_at: string
           updated_by: string | null
+          kiloan_yayasan_per_kg: number
+          kiloan_vendor_per_kg: number
+          non_kiloan_yayasan_percent: number
+          non_kiloan_vendor_percent: number
         }
         Insert: {
           id?: string
           is_holiday?: boolean
           updated_at?: string
           updated_by?: string | null
+          kiloan_yayasan_per_kg?: number
+          kiloan_vendor_per_kg?: number
+          non_kiloan_yayasan_percent?: number
+          non_kiloan_vendor_percent?: number
         }
         Update: {
           id?: string
           is_holiday?: boolean
           updated_at?: string
           updated_by?: string | null
+          kiloan_yayasan_per_kg?: number
+          kiloan_vendor_per_kg?: number
+          non_kiloan_yayasan_percent?: number
+          non_kiloan_vendor_percent?: number
         }
         Relationships: []
       }

@@ -8,7 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { Receipt, Loader2, CreditCard, AlertCircle, CheckSquare, Info, CheckCircle2 } from 'lucide-react';
+import { Receipt, Loader2, CreditCard, AlertCircle, CheckSquare, Info, CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { LAUNDRY_CATEGORIES, QRIS_MAX_AMOUNT, type OrderStatus } from '@/lib/constants';
 import {
   Tooltip,
@@ -36,24 +36,31 @@ interface Bill {
   };
 }
 
+const PAGE_SIZE = 20;
+
 export default function Bills() {
   const { toast } = useToast();
   const { profile, userRole } = useAuth();
   const { processPayment, processBulkPayment, confirmPaymentManually, isProcessing, getEstimatedAdminFee } = useMidtrans();
-  const [bills, setBills] = useState<Bill[]>([]);
+  const [unpaidBills, setUnpaidBills] = useState<Bill[]>([]);
+  const [paidBills, setPaidBills] = useState<Bill[]>([]);
   const [loading, setLoading] = useState(true);
   const [payingBillId, setPayingBillId] = useState<string | null>(null);
   const [selectedBills, setSelectedBills] = useState<Set<string>>(new Set());
   const [isPayingAll, setIsPayingAll] = useState(false);
+  const [paidPage, setPaidPage] = useState(0);
+  const [paidBillsCount, setPaidBillsCount] = useState(0);
 
   useEffect(() => {
     fetchBills();
-  }, []);
+  }, [paidPage]);
 
   const fetchBills = async () => {
     try {
-      // Only fetch approved orders (ready for payment) and paid orders
-      const { data, error } = await supabase
+      setLoading(true);
+
+      // Fetch all unpaid bills (no pagination - users need to see all)
+      const { data: unpaidData, error: unpaidError } = await supabase
         .from('laundry_orders')
         .select(`
           id,
@@ -68,11 +75,38 @@ export default function Bills() {
           students (name, class),
           laundry_partners (name)
         `)
-        .in('status', ['DISETUJUI_MITRA', 'MENUNGGU_PEMBAYARAN', 'DIBAYAR', 'SELESAI'])
+        .in('status', ['DISETUJUI_MITRA', 'MENUNGGU_PEMBAYARAN'])
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      setBills(data || []);
+      if (unpaidError) throw unpaidError;
+      setUnpaidBills(unpaidData || []);
+
+      // Fetch paginated paid bills
+      const from = paidPage * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+
+      const { data: paidData, error: paidError, count } = await supabase
+        .from('laundry_orders')
+        .select(`
+          id,
+          category,
+          weight_kg,
+          item_count,
+          total_price,
+          admin_fee,
+          payment_method,
+          status,
+          created_at,
+          students (name, class),
+          laundry_partners (name)
+        `, { count: 'exact' })
+        .in('status', ['DIBAYAR', 'SELESAI'])
+        .order('created_at', { ascending: false })
+        .range(from, to);
+
+      if (paidError) throw paidError;
+      setPaidBills(paidData || []);
+      setPaidBillsCount(count || 0);
     } catch (error) {
       console.error('Error fetching bills:', error);
       toast({
@@ -195,12 +229,11 @@ export default function Bills() {
     });
   };
 
-  const unpaidBills = bills.filter(b => ['DISETUJUI_MITRA', 'MENUNGGU_PEMBAYARAN'].includes(b.status));
-  const paidBills = bills.filter(b => ['DIBAYAR', 'SELESAI'].includes(b.status));
   const totalUnpaid = unpaidBills.reduce((sum, b) => sum + b.total_price, 0);
   const selectedTotal = unpaidBills
     .filter(b => selectedBills.has(b.id))
     .reduce((sum, b) => sum + b.total_price, 0);
+  const allBills = [...unpaidBills, ...paidBills];
 
   // Cashier doesn't pay admin fee
   const isCashier = userRole === 'cashier';
@@ -301,7 +334,7 @@ export default function Bills() {
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
-        ) : bills.length === 0 ? (
+        ) : allBills.length === 0 ? (
           <Card className="dashboard-card">
             <CardContent className="flex flex-col items-center justify-center py-12">
               <Receipt className="h-16 w-16 text-muted-foreground/30 mb-4" />
@@ -435,9 +468,9 @@ export default function Bills() {
             )}
 
             {/* Paid Bills */}
-            {paidBills.length > 0 && (
+            {(paidBills.length > 0 || paidBillsCount > 0) && (
               <div className="space-y-4">
-                <h2 className="text-lg font-semibold">Riwayat Pembayaran</h2>
+                <h2 className="text-lg font-semibold">Riwayat Pembayaran ({paidBillsCount} transaksi)</h2>
                 <Card className="dashboard-card">
                   <CardContent className="p-0">
                     <div className="overflow-x-auto">
@@ -491,6 +524,38 @@ export default function Bills() {
                         </tbody>
                       </table>
                     </div>
+
+                    {/* Pagination for Paid Bills */}
+                    {paidBillsCount > PAGE_SIZE && (
+                      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 border-t border-border">
+                        <div className="text-sm text-muted-foreground">
+                          Menampilkan {paidPage * PAGE_SIZE + 1} - {Math.min((paidPage + 1) * PAGE_SIZE, paidBillsCount)} dari {paidBillsCount} riwayat
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setPaidPage((p) => Math.max(0, p - 1))}
+                            disabled={paidPage === 0 || loading}
+                          >
+                            <ChevronLeft className="h-4 w-4 mr-1" />
+                            Sebelumnya
+                          </Button>
+                          <div className="flex items-center gap-1 px-3 py-1 rounded-md bg-muted text-sm font-medium">
+                            Halaman {paidPage + 1} dari {Math.ceil(paidBillsCount / PAGE_SIZE)}
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setPaidPage((p) => p + 1)}
+                            disabled={(paidPage + 1) * PAGE_SIZE >= paidBillsCount || loading}
+                          >
+                            Selanjutnya
+                            <ChevronRight className="h-4 w-4 ml-1" />
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </div>

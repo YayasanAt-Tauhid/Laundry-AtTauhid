@@ -25,6 +25,8 @@ import {
   CheckCircle,
   XCircle,
   Eye,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { LAUNDRY_CATEGORIES, type OrderStatus } from '@/lib/constants';
 
@@ -50,6 +52,8 @@ interface Order {
   };
 }
 
+const PAGE_SIZE = 20;
+
 export default function Orders() {
   const { user, userRole } = useAuth();
   const { toast } = useToast();
@@ -61,24 +65,49 @@ export default function Orders() {
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
   const [processing, setProcessing] = useState(false);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
 
   useEffect(() => {
     fetchOrders();
-  }, [user, userRole]);
+  }, [user, userRole, currentPage]);
+
+  // Reset to first page when search term changes
+  useEffect(() => {
+    setCurrentPage(0);
+  }, [searchTerm]);
 
   const fetchOrders = async () => {
     try {
-      const { data, error } = await supabase
+      setLoading(true);
+
+      // Build base query
+      let query = supabase
         .from('laundry_orders')
         .select(`
           *,
           students (name, class),
           laundry_partners (name)
-        `)
-        .order('created_at', { ascending: false });
+        `, { count: 'exact' });
+
+      // Apply search filter on server side if search term exists
+      if (searchTerm.trim()) {
+        // We'll filter on client side for complex joins, but limit server fetch
+        query = query.order('created_at', { ascending: false });
+      } else {
+        // Paginate only when not searching
+        const from = currentPage * PAGE_SIZE;
+        const to = from + PAGE_SIZE - 1;
+        query = query
+          .order('created_at', { ascending: false })
+          .range(from, to);
+      }
+
+      const { data, error, count } = await query;
 
       if (error) throw error;
       setOrders(data || []);
+      setTotalCount(count || 0);
     } catch (error) {
       console.error('Error fetching orders:', error);
       toast({
@@ -207,12 +236,12 @@ export default function Orders() {
           <div>
             <h1 className="text-2xl font-bold text-foreground">Daftar Order</h1>
             <p className="text-muted-foreground mt-1">
-              {userRole === 'partner' 
-                ? 'Order yang perlu Anda approve' 
+              {userRole === 'partner'
+                ? 'Order yang perlu Anda approve'
                 : 'Kelola semua order laundry'}
             </p>
           </div>
-          
+
           {userRole === 'staff' && (
             <Button asChild>
               <Link to="/orders/new">
@@ -234,7 +263,7 @@ export default function Orders() {
           />
         </div>
 
-        {/* Orders Table */}
+        {/* Orders - Responsive Layout */}
         <Card className="dashboard-card">
           <CardContent className="p-0">
             {loading ? (
@@ -252,81 +281,196 @@ export default function Orders() {
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-muted/30">
-                    <tr>
-                      <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Siswa</th>
-                      <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Kelas</th>
-                      <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Mitra</th>
-                      <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Kategori</th>
-                      <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Jumlah</th>
-                      <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Total</th>
-                      <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Status</th>
-                      <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Tanggal</th>
-                      <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Aksi</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredOrders.map((order) => (
-                      <tr key={order.id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
-                        <td className="py-4 px-6 font-medium">{order.students?.name}</td>
-                        <td className="py-4 px-6 text-muted-foreground">{order.students?.class}</td>
-                        <td className="py-4 px-6 text-muted-foreground">{order.laundry_partners?.name}</td>
-                        <td className="py-4 px-6">
+              <>
+                {/* Mobile Card View */}
+                <div className="block lg:hidden divide-y divide-border">
+                  {filteredOrders.map((order) => (
+                    <div key={order.id} className="p-4 space-y-3">
+                      {/* Header: Student Info & Status */}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold text-foreground truncate">
+                            {order.students?.name}
+                          </h3>
+                          <p className="text-sm text-muted-foreground">
+                            Kelas {order.students?.class}
+                          </p>
+                        </div>
+                        <StatusBadge status={order.status} />
+                      </div>
+
+                      {/* Order Details */}
+                      <div className="flex flex-wrap items-center gap-2 text-sm">
+                        <span className="inline-flex items-center px-2 py-1 rounded-md bg-muted/50 text-muted-foreground">
                           {LAUNDRY_CATEGORIES[order.category as keyof typeof LAUNDRY_CATEGORIES]?.label || order.category}
-                        </td>
-                        <td className="py-4 px-6">
-                          {order.category === 'kiloan' 
-                            ? `${order.weight_kg} kg` 
+                        </span>
+                        <span className="text-muted-foreground">•</span>
+                        <span className="text-muted-foreground">
+                          {order.category === 'kiloan'
+                            ? `${order.weight_kg} kg`
                             : `${order.item_count} pcs`}
-                        </td>
-                        <td className="py-4 px-6 font-medium">{formatCurrency(order.total_price)}</td>
-                        <td className="py-4 px-6">
-                          <StatusBadge status={order.status} />
-                        </td>
-                        <td className="py-4 px-6 text-muted-foreground">{formatDate(order.created_at)}</td>
-                        <td className="py-4 px-6">
-                          <div className="flex items-center gap-2">
+                        </span>
+                        <span className="text-muted-foreground">•</span>
+                        <span className="font-semibold text-primary">
+                          {formatCurrency(order.total_price)}
+                        </span>
+                      </div>
+
+                      {/* Partner & Date */}
+                      <div className="flex items-center justify-between text-sm text-muted-foreground">
+                        <span>Mitra: {order.laundry_partners?.name}</span>
+                        <span>{formatDate(order.created_at)}</span>
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div className="flex gap-2 pt-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1"
+                          onClick={() => openDetailDialog(order)}
+                        >
+                          <Eye className="h-4 w-4 mr-2" />
+                          Detail
+                        </Button>
+
+                        {userRole === 'partner' && order.status === 'MENUNGGU_APPROVAL_MITRA' && (
+                          <>
                             <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => openDetailDialog(order)}
+                              size="sm"
+                              className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                              onClick={() => handleApprove(order)}
+                              disabled={processing}
                             >
-                              <Eye className="h-4 w-4" />
+                              <CheckCircle className="h-4 w-4 mr-2" />
+                              Setujui
                             </Button>
-                            
-                            {userRole === 'partner' && order.status === 'MENUNGGU_APPROVAL_MITRA' && (
-                              <>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="text-success hover:text-success"
-                                  onClick={() => handleApprove(order)}
-                                  disabled={processing}
-                                >
-                                  <CheckCircle className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="text-destructive hover:text-destructive"
-                                  onClick={() => openRejectDialog(order)}
-                                  disabled={processing}
-                                >
-                                  <XCircle className="h-4 w-4" />
-                                </Button>
-                              </>
-                            )}
-                          </div>
-                        </td>
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              className="flex-1"
+                              onClick={() => openRejectDialog(order)}
+                              disabled={processing}
+                            >
+                              <XCircle className="h-4 w-4 mr-2" />
+                              Tolak
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop Table View */}
+                <div className="hidden lg:block overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-muted/30">
+                      <tr>
+                        <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Siswa</th>
+                        <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Kelas</th>
+                        <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Mitra</th>
+                        <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Kategori</th>
+                        <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Jumlah</th>
+                        <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Total</th>
+                        <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Status</th>
+                        <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Tanggal</th>
+                        <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Aksi</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {filteredOrders.map((order) => (
+                        <tr key={order.id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
+                          <td className="py-4 px-6 font-medium">{order.students?.name}</td>
+                          <td className="py-4 px-6 text-muted-foreground">{order.students?.class}</td>
+                          <td className="py-4 px-6 text-muted-foreground">{order.laundry_partners?.name}</td>
+                          <td className="py-4 px-6">
+                            {LAUNDRY_CATEGORIES[order.category as keyof typeof LAUNDRY_CATEGORIES]?.label || order.category}
+                          </td>
+                          <td className="py-4 px-6">
+                            {order.category === 'kiloan'
+                              ? `${order.weight_kg} kg`
+                              : `${order.item_count} pcs`}
+                          </td>
+                          <td className="py-4 px-6 font-medium">{formatCurrency(order.total_price)}</td>
+                          <td className="py-4 px-6">
+                            <StatusBadge status={order.status} />
+                          </td>
+                          <td className="py-4 px-6 text-muted-foreground">{formatDate(order.created_at)}</td>
+                          <td className="py-4 px-6">
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => openDetailDialog(order)}
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+
+                              {userRole === 'partner' && order.status === 'MENUNGGU_APPROVAL_MITRA' && (
+                                <>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="text-success hover:text-success"
+                                    onClick={() => handleApprove(order)}
+                                    disabled={processing}
+                                  >
+                                    <CheckCircle className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="text-destructive hover:text-destructive"
+                                    onClick={() => openRejectDialog(order)}
+                                    disabled={processing}
+                                  >
+                                    <XCircle className="h-4 w-4" />
+                                  </Button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </CardContent>
+
+          {/* Pagination */}
+          {!searchTerm.trim() && totalCount > PAGE_SIZE && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 border-t border-border">
+              <div className="text-sm text-muted-foreground">
+                Menampilkan {currentPage * PAGE_SIZE + 1} - {Math.min((currentPage + 1) * PAGE_SIZE, totalCount)} dari {totalCount} order
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((p) => Math.max(0, p - 1))}
+                  disabled={currentPage === 0 || loading}
+                >
+                  <ChevronLeft className="h-4 w-4 mr-1" />
+                  Sebelumnya
+                </Button>
+                <div className="flex items-center gap-1 px-3 py-1 rounded-md bg-muted text-sm font-medium">
+                  Halaman {currentPage + 1} dari {Math.ceil(totalCount / PAGE_SIZE)}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((p) => p + 1)}
+                  disabled={(currentPage + 1) * PAGE_SIZE >= totalCount || loading}
+                >
+                  Selanjutnya
+                  <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              </div>
+            </div>
+          )}
         </Card>
 
         {/* Detail Dialog */}
@@ -359,8 +503,8 @@ export default function Orders() {
                   <div>
                     <p className="text-sm text-muted-foreground">Jumlah</p>
                     <p className="font-medium">
-                      {selectedOrder.category === 'kiloan' 
-                        ? `${selectedOrder.weight_kg} kg` 
+                      {selectedOrder.category === 'kiloan'
+                        ? `${selectedOrder.weight_kg} kg`
                         : `${selectedOrder.item_count} pcs`}
                     </p>
                   </div>
@@ -369,7 +513,7 @@ export default function Orders() {
                     <p className="font-medium">{formatCurrency(selectedOrder.price_per_unit)}</p>
                   </div>
                 </div>
-                
+
                 <div className="border-t pt-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div>

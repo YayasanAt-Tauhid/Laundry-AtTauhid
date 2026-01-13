@@ -25,7 +25,9 @@ import {
 } from '@/components/ui/alert-dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, Edit, Trash2, GraduationCap, Loader2 } from 'lucide-react';
+import { Plus, Edit, Trash2, GraduationCap, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+
+const PAGE_SIZE = 20;
 
 interface Student {
   id: string;
@@ -50,20 +52,28 @@ export default function Students() {
     nis: '',
   });
   const [saving, setSaving] = useState(false);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
 
   useEffect(() => {
     fetchStudents();
-  }, [user]);
+  }, [user, currentPage]);
 
   const fetchStudents = async () => {
     try {
-      const { data, error } = await supabase
+      setLoading(true);
+      const from = currentPage * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+
+      const { data, error, count } = await supabase
         .from('students')
-        .select('*')
-        .order('name');
+        .select('*', { count: 'exact' })
+        .order('name')
+        .range(from, to);
 
       if (error) throw error;
       setStudents(data || []);
+      setTotalCount(count || 0);
     } catch (error) {
       console.error('Error fetching students:', error);
       toast({
@@ -75,6 +85,7 @@ export default function Students() {
       setLoading(false);
     }
   };
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -196,7 +207,7 @@ export default function Students() {
               Kelola data siswa yang terdaftar
             </p>
           </div>
-          
+
           {userRole === 'parent' && (
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>
@@ -344,6 +355,38 @@ export default function Students() {
                 </CardContent>
               </Card>
             ))}
+          </div>
+        )}
+
+        {/* Pagination */}
+        {!loading && totalCount > PAGE_SIZE && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 border rounded-lg bg-card">
+            <div className="text-sm text-muted-foreground">
+              Menampilkan {currentPage * PAGE_SIZE + 1} - {Math.min((currentPage + 1) * PAGE_SIZE, totalCount)} dari {totalCount} siswa
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage((p) => Math.max(0, p - 1))}
+                disabled={currentPage === 0 || loading}
+              >
+                <ChevronLeft className="h-4 w-4 mr-1" />
+                Sebelumnya
+              </Button>
+              <div className="flex items-center gap-1 px-3 py-1 rounded-md bg-muted text-sm font-medium">
+                Halaman {currentPage + 1} dari {Math.ceil(totalCount / PAGE_SIZE)}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage((p) => p + 1)}
+                disabled={(currentPage + 1) * PAGE_SIZE >= totalCount || loading}
+              >
+                Selanjutnya
+                <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            </div>
           </div>
         )}
 
