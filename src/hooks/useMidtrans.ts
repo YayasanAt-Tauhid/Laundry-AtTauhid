@@ -214,31 +214,7 @@ export function useMidtrans() {
                 return;
             }
 
-            // Check if server key is configured
-            if (!MIDTRANS_SERVER_KEY) {
-                // Fallback: update status manually
-                const midtransOrderId = `ORDER-${params.orderId}-${Date.now()}`;
-
-                const { error } = await supabase
-                    .from('laundry_orders')
-                    .update({
-                        status: 'MENUNGGU_PEMBAYARAN',
-                        midtrans_order_id: midtransOrderId,
-                        admin_fee: adminFee,
-                    })
-                    .eq('id', params.orderId);
-
-                if (error) throw error;
-
-                toast({
-                    title: 'Status Diperbarui',
-                    description: 'Order telah diubah ke status Menunggu Pembayaran. Admin akan mengirimkan link pembayaran.',
-                });
-
-                onPending?.();
-                return;
-            }
-
+            // Try to get snap token via Edge Function (or fallback to direct API if server key is configured)
             const snapToken = await createSnapToken({ ...params, adminFee });
 
             if (!snapToken) {
@@ -451,31 +427,7 @@ export function useMidtrans() {
                 return;
             }
 
-            if (!MIDTRANS_SERVER_KEY) {
-                // Fallback: update status manually for all orders
-                const midtransOrderId = `BULK-${Date.now()}`;
-                const adminFeePerOrder = Math.ceil(adminFee / params.orderIds.length);
-
-                for (const orderId of params.orderIds) {
-                    await supabase
-                        .from('laundry_orders')
-                        .update({
-                            status: 'MENUNGGU_PEMBAYARAN',
-                            midtrans_order_id: midtransOrderId,
-                            admin_fee: adminFeePerOrder,
-                        })
-                        .eq('id', orderId);
-                }
-
-                toast({
-                    title: 'Status Diperbarui',
-                    description: `${params.orderIds.length} order telah diubah ke status Menunggu Pembayaran.`,
-                });
-
-                onPending?.();
-                return;
-            }
-
+            // Try to get snap token via Edge Function (or fallback to direct API if server key is configured)
             const snapToken = await createBulkSnapToken({ ...params, adminFee });
 
             if (!snapToken) {
