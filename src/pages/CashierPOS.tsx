@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useMidtrans } from '@/hooks/useMidtrans';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
@@ -9,6 +9,18 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import {
+    Command,
+    CommandEmpty,
+    CommandGroup,
+    CommandItem,
+    CommandList,
+} from '@/components/ui/command';
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from '@/components/ui/popover';
 import {
     CreditCard,
     Search,
@@ -85,6 +97,12 @@ interface PaymentReceipt {
     changeAmount: number;
 }
 
+interface StudentSuggestion {
+    id: string;
+    name: string;
+    class: string;
+}
+
 export default function CashierPOS() {
     const { toast } = useToast();
     const { profile } = useAuth();
@@ -97,6 +115,13 @@ export default function CashierPOS() {
     const [processingPayment, setProcessingPayment] = useState(false);
     const [hasSearched, setHasSearched] = useState(false);
     const [allClasses, setAllClasses] = useState<string[]>([]);
+
+    // Autocomplete states
+    const [suggestions, setSuggestions] = useState<StudentSuggestion[]>([]);
+    const [showSuggestions, setShowSuggestions] = useState(false);
+    const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+    const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
 
     // Payment modal states
     const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -120,6 +145,74 @@ export default function CashierPOS() {
             }
         };
         fetchClasses();
+    }, []);
+
+    // Fetch student suggestions for autocomplete
+    const fetchSuggestions = useCallback(async (query: string) => {
+        if (!query.trim() || query.trim().length < 2) {
+            setSuggestions([]);
+            setShowSuggestions(false);
+            return;
+        }
+
+        setLoadingSuggestions(true);
+        try {
+            let studentQuery = supabase
+                .from('students')
+                .select('id, name, class')
+                .ilike('name', `%${query.trim()}%`)
+                .limit(10);
+
+            // Apply class filter if selected
+            if (filterClass !== 'all') {
+                studentQuery = studentQuery.eq('class', filterClass);
+            }
+
+            const { data, error } = await studentQuery.order('name');
+
+            if (error) throw error;
+
+            setSuggestions(data || []);
+            setShowSuggestions((data?.length || 0) > 0);
+        } catch (error) {
+            console.error('Error fetching suggestions:', error);
+            setSuggestions([]);
+        } finally {
+            setLoadingSuggestions(false);
+        }
+    }, [filterClass]);
+
+    // Handle input change with debounce
+    const handleInputChange = (value: string) => {
+        setSearchQuery(value);
+
+        // Clear previous timer
+        if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+        }
+
+        // Set new debounce timer (300ms delay)
+        debounceTimerRef.current = setTimeout(() => {
+            fetchSuggestions(value);
+        }, 300);
+    };
+
+    // Handle selection of a suggestion
+    const handleSelectSuggestion = (student: StudentSuggestion) => {
+        setSearchQuery(student.name);
+        setShowSuggestions(false);
+        setSuggestions([]);
+        // Trigger search immediately with selected student name
+        searchBills(student.name, filterClass);
+    };
+
+    // Clean up debounce timer on unmount
+    useEffect(() => {
+        return () => {
+            if (debounceTimerRef.current) {
+                clearTimeout(debounceTimerRef.current);
+            }
+        };
     }, []);
 
     const searchBills = async (query: string, classFilter: string) => {
@@ -199,7 +292,11 @@ export default function CashierPOS() {
 
     const handleKeyPress = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter') {
+            setShowSuggestions(false);
+            setSuggestions([]);
             handleSearch();
+        } else if (e.key === 'Escape') {
+            setShowSuggestions(false);
         }
     };
 
@@ -497,21 +594,88 @@ export default function CashierPOS() {
                     )}
                 </div>
 
-                {/* Search and Filter Bar */}
+                {/* Search and Filter Bar with Autocomplete */}
                 <Card className="dashboard-card">
                     <CardContent className="p-4">
                         <div className="flex flex-col md:flex-row gap-4">
-                            <div className="relative flex-1">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                <Input
-                                    placeholder="Cari nama siswa..."
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                    onKeyDown={handleKeyPress}
-                                    className="pl-10"
-                                />
-                            </div>
-                            <Select value={filterClass} onValueChange={setFilterClass}>
+                            {/* Autocomplete Search Input */}
+                            <Popover open={showSuggestions} onOpenChange={setShowSuggestions}>
+                                <PopoverTrigger asChild>
+                                    <div className="relative flex-1">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground z-10" />
+                                        {loadingSuggestions && (
+                                            <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground animate-spin z-10" />
+                                        )}
+                                        <Input
+                                            ref={inputRef}
+                                            placeholder="Ketik nama siswa untuk mencari..."
+                                            value={searchQuery}
+                                            onChange={(e) => handleInputChange(e.target.value)}
+                                            onKeyDown={handleKeyPress}
+                                            onFocus={() => {
+                                                if (suggestions.length > 0) {
+                                                    setShowSuggestions(true);
+                                                }
+                                            }}
+                                            className="pl-10 pr-10"
+                                            autoComplete="off"
+                                        />
+                                    </div>
+                                </PopoverTrigger>
+                                <PopoverContent
+                                    className="p-0 w-[var(--radix-popover-trigger-width)]"
+                                    align="start"
+                                    onOpenAutoFocus={(e) => e.preventDefault()}
+                                >
+                                    <Command>
+                                        <CommandList>
+                                            <CommandEmpty className="py-4 text-center text-sm">
+                                                {loadingSuggestions ? (
+                                                    <div className="flex items-center justify-center gap-2">
+                                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                                        <span>Mencari siswa...</span>
+                                                    </div>
+                                                ) : (
+                                                    'Tidak ada siswa ditemukan'
+                                                )}
+                                            </CommandEmpty>
+                                            <CommandGroup heading="Saran Siswa">
+                                                {suggestions.map((student) => (
+                                                    <CommandItem
+                                                        key={student.id}
+                                                        value={student.name}
+                                                        onSelect={() => handleSelectSuggestion(student)}
+                                                        className="cursor-pointer hover:bg-primary/10 transition-colors"
+                                                    >
+                                                        <div className="flex items-center gap-3 w-full">
+                                                            <div className="h-8 w-8 rounded-full bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center">
+                                                                <User className="h-4 w-4 text-primary" />
+                                                            </div>
+                                                            <div className="flex-1 min-w-0">
+                                                                <p className="font-medium text-foreground truncate">
+                                                                    {student.name}
+                                                                </p>
+                                                                <p className="text-xs text-muted-foreground">
+                                                                    Kelas {student.class}
+                                                                </p>
+                                                            </div>
+                                                            <CheckCircle2 className="h-4 w-4 text-primary/50" />
+                                                        </div>
+                                                    </CommandItem>
+                                                ))}
+                                            </CommandGroup>
+                                        </CommandList>
+                                    </Command>
+                                </PopoverContent>
+                            </Popover>
+
+                            <Select value={filterClass} onValueChange={(value) => {
+                                setFilterClass(value);
+                                // Re-fetch suggestions with new class filter
+                                if (searchQuery.trim().length >= 2) {
+                                    fetchSuggestions(searchQuery);
+                                }
+                            }}>
                                 <SelectTrigger className="w-full md:w-48">
                                     <SelectValue placeholder="Pilih Kelas" />
                                 </SelectTrigger>
@@ -540,7 +704,7 @@ export default function CashierPOS() {
                             </Button>
                         </div>
                         <p className="text-xs text-muted-foreground mt-2">
-                            💡 Masukkan nama siswa atau pilih kelas, lalu tekan Cari atau Enter
+                            💡 Ketik minimal 2 huruf untuk melihat saran nama siswa, atau pilih kelas lalu tekan Cari
                         </p>
                     </CardContent>
                 </Card>
