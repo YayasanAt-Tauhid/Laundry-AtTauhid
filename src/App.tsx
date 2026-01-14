@@ -16,6 +16,7 @@ import CashierReports from "./pages/CashierReports";
 import CashierPOS from "./pages/CashierPOS";
 import Settings from "./pages/Settings";
 import DataMigration from "./pages/DataMigration";
+import UserManagement from "./pages/UserManagement";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 
@@ -138,6 +139,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute allowedRoles={["admin"]}>
             <DataMigration />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/user-management"
+        element={
+          <ProtectedRoute allowedRoles={["admin"]}>
+            <UserManagement />
           </ProtectedRoute>
         }
       />

@@ -549,7 +549,8 @@ export default function Bills() {
                                       const success =
                                         await confirmPaymentManually(
                                           bill.id,
-                                          "bank_transfer",
+                                          "cash",
+                                          true, // isCashPayment - no admin fee for cash at cashier
                                         );
                                       if (success) fetchBills();
                                       setPayingBillId(null);
@@ -559,7 +560,7 @@ export default function Bills() {
                                     }
                                   >
                                     <CheckCircle2 className="h-4 w-4 mr-2" />
-                                    Konfirmasi Manual
+                                    Bayar Tunai
                                   </Button>
                                 )}
                               </div>
@@ -644,15 +645,26 @@ export default function Bills() {
                                 )}
                               </td>
                               <td className="py-4 px-6">
-                                <span className="text-xs px-2 py-1 bg-muted rounded-full">
-                                  {bill.payment_method === "qris"
-                                    ? "QRIS"
-                                    : bill.payment_method?.includes("va") ||
-                                        bill.payment_method ===
-                                          "bank_transfer" ||
-                                        bill.payment_method === "echannel"
-                                      ? "VA"
-                                      : bill.payment_method || "-"}
+                                <span
+                                  className={`text-xs px-2 py-1 rounded-full ${
+                                    bill.payment_method === "cash" ||
+                                    bill.payment_method === "manual"
+                                      ? "bg-green-100 text-green-700"
+                                      : "bg-muted"
+                                  }`}
+                                >
+                                  {bill.payment_method === "cash"
+                                    ? "Tunai"
+                                    : bill.payment_method === "manual"
+                                      ? "Manual"
+                                      : bill.payment_method === "qris"
+                                        ? "QRIS"
+                                        : bill.payment_method?.includes("va") ||
+                                            bill.payment_method ===
+                                              "bank_transfer" ||
+                                            bill.payment_method === "echannel"
+                                          ? "VA"
+                                          : bill.payment_method || "-"}
                                 </span>
                               </td>
                               <td className="py-4 px-6">

@@ -73,8 +73,8 @@ const navItems: NavItem[] = [
     roles: ["admin"],
   },
   {
-    label: "Pengguna",
-    href: "/users",
+    label: "Manajemen Orang Tua",
+    href: "/user-management",
     icon: <Users className="h-5 w-5" />,
     roles: ["admin"],
   },

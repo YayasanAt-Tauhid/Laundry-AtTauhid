@@ -36,6 +36,7 @@ import {
   Upload,
 } from "lucide-react";
 import { ImportData } from "@/components/import/ImportData";
+import { ImportParentData } from "@/components/import/ImportParentData";
 
 const PAGE_SIZE = 20;
 
@@ -65,6 +66,7 @@ export default function Students() {
   const [currentPage, setCurrentPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importParentDialogOpen, setImportParentDialogOpen] = useState(false);
 
   useEffect(() => {
     fetchStudents();
@@ -225,13 +227,22 @@ export default function Students() {
             userRole === "staff") && (
             <div className="flex gap-2">
               {userRole === "admin" && (
-                <Button
-                  variant="outline"
-                  onClick={() => setImportDialogOpen(true)}
-                >
-                  <Upload className="h-4 w-4 mr-2" />
-                  Import Data
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={() => setImportParentDialogOpen(true)}
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    Import Orang Tua
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setImportDialogOpen(true)}
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    Import Siswa
+                  </Button>
+                </>
               )}
               <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
                 <DialogTrigger asChild>
@@ -458,6 +469,15 @@ export default function Students() {
         <ImportData
           open={importDialogOpen}
           onOpenChange={setImportDialogOpen}
+          onImportComplete={() => {
+            fetchStudents();
+          }}
+        />
+
+        {/* Import Parent Dialog */}
+        <ImportParentData
+          open={importParentDialogOpen}
+          onOpenChange={setImportParentDialogOpen}
           onImportComplete={() => {
             fetchStudents();
           }}
