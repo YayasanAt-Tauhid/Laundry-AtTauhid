@@ -132,7 +132,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           </button>
           <div className="flex items-center gap-2">
             <span className="text-xl">🧺</span>
-            <span className="font-semibold">SchoolWash</span>
+            <span className="font-semibold">At-Tauhid Laundry</span>
           </div>
           <div className="w-9" />
         </div>
@@ -162,10 +162,10 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               </div>
               <div>
                 <h1 className="font-bold text-sidebar-foreground">
-                  SchoolWash
+                  At-Tauhid Laundry
                 </h1>
                 <p className="text-xs text-sidebar-foreground/60">
-                  Laundry Sekolah
+                  Sistem Laundry Sekolah
                 </p>
               </div>
             </div>

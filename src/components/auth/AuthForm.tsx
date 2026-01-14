@@ -1,25 +1,31 @@
-import { useState } from 'react';
-import { useAuth } from '@/hooks/useAuth';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useToast } from '@/hooks/use-toast';
-import { Loader2, Mail, Lock, User, Phone } from 'lucide-react';
+import { useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useToast } from "@/hooks/use-toast";
+import { Loader2, Mail, Lock, User, Phone } from "lucide-react";
 
 export function AuthForm() {
   const { signIn, signUp } = useAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
 
-  const [loginForm, setLoginForm] = useState({ email: '', password: '' });
+  const [loginForm, setLoginForm] = useState({ email: "", password: "" });
   const [registerForm, setRegisterForm] = useState({
-    email: '',
-    password: '',
-    confirmPassword: '',
-    fullName: '',
-    phone: '',
+    email: "",
+    password: "",
+    confirmPassword: "",
+    fullName: "",
+    phone: "",
   });
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -30,16 +36,17 @@ export function AuthForm() {
 
     if (error) {
       toast({
-        variant: 'destructive',
-        title: 'Login Gagal',
-        description: error.message === 'Invalid login credentials'
-          ? 'Email atau password salah'
-          : error.message,
+        variant: "destructive",
+        title: "Login Gagal",
+        description:
+          error.message === "Invalid login credentials"
+            ? "Email atau password salah"
+            : error.message,
       });
     } else {
       toast({
-        title: 'Login Berhasil',
-        description: 'Selamat datang kembali!',
+        title: "Login Berhasil",
+        description: "Selamat datang kembali!",
       });
     }
 
@@ -48,21 +55,21 @@ export function AuthForm() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (registerForm.password !== registerForm.confirmPassword) {
       toast({
-        variant: 'destructive',
-        title: 'Registrasi Gagal',
-        description: 'Password dan konfirmasi password tidak sama',
+        variant: "destructive",
+        title: "Registrasi Gagal",
+        description: "Password dan konfirmasi password tidak sama",
       });
       return;
     }
 
     if (registerForm.password.length < 6) {
       toast({
-        variant: 'destructive',
-        title: 'Registrasi Gagal',
-        description: 'Password minimal 6 karakter',
+        variant: "destructive",
+        title: "Registrasi Gagal",
+        description: "Password minimal 6 karakter",
       });
       return;
     }
@@ -73,21 +80,22 @@ export function AuthForm() {
       registerForm.email,
       registerForm.password,
       registerForm.fullName,
-      registerForm.phone
+      registerForm.phone,
     );
 
     if (error) {
       toast({
-        variant: 'destructive',
-        title: 'Registrasi Gagal',
-        description: error.message === 'User already registered'
-          ? 'Email sudah terdaftar'
-          : error.message,
+        variant: "destructive",
+        title: "Registrasi Gagal",
+        description:
+          error.message === "User already registered"
+            ? "Email sudah terdaftar"
+            : error.message,
       });
     } else {
       toast({
-        title: 'Registrasi Berhasil',
-        description: 'Akun Anda telah dibuat. Silakan login.',
+        title: "Registrasi Berhasil",
+        description: "Akun Anda telah dibuat. Silakan login.",
       });
     }
 
@@ -101,8 +109,10 @@ export function AuthForm() {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 mb-4">
             <span className="text-3xl">🧺</span>
           </div>
-          <h1 className="text-2xl font-bold text-foreground">SchoolWash</h1>
-          <p className="text-muted-foreground mt-1">Sistem Manajemen Laundry Sekolah</p>
+          <h1 className="text-2xl font-bold text-foreground">
+            At-Tauhid Laundry
+          </h1>
+          <p className="text-muted-foreground mt-1">Sistem Manajemen Laundry</p>
         </div>
 
         <Card className="animate-slide-up border-border/50 shadow-lg">
@@ -126,7 +136,9 @@ export function AuthForm() {
                         type="email"
                         placeholder="nama@email.com"
                         value={loginForm.email}
-                        onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })}
+                        onChange={(e) =>
+                          setLoginForm({ ...loginForm, email: e.target.value })
+                        }
                         className="pl-10"
                         required
                       />
@@ -142,7 +154,12 @@ export function AuthForm() {
                         type="password"
                         placeholder="••••••••"
                         value={loginForm.password}
-                        onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
+                        onChange={(e) =>
+                          setLoginForm({
+                            ...loginForm,
+                            password: e.target.value,
+                          })
+                        }
                         className="pl-10"
                         required
                       />
@@ -150,7 +167,9 @@ export function AuthForm() {
                   </div>
 
                   <Button type="submit" className="w-full" disabled={loading}>
-                    {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    {loading && (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    )}
                     Masuk
                   </Button>
                 </form>
@@ -158,9 +177,10 @@ export function AuthForm() {
 
               <TabsContent value="register" className="mt-0">
                 <CardDescription className="mb-4">
-                  Daftar sebagai Orang Tua untuk mengelola data siswa dan pembayaran laundry.
+                  Daftar sebagai Orang Tua untuk mengelola data siswa dan
+                  pembayaran laundry.
                 </CardDescription>
-                
+
                 <form onSubmit={handleRegister} className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="register-name">Nama Lengkap</Label>
@@ -171,7 +191,12 @@ export function AuthForm() {
                         type="text"
                         placeholder="Nama lengkap Anda"
                         value={registerForm.fullName}
-                        onChange={(e) => setRegisterForm({ ...registerForm, fullName: e.target.value })}
+                        onChange={(e) =>
+                          setRegisterForm({
+                            ...registerForm,
+                            fullName: e.target.value,
+                          })
+                        }
                         className="pl-10"
                         required
                       />
@@ -187,7 +212,12 @@ export function AuthForm() {
                         type="tel"
                         placeholder="08xxxxxxxxxx"
                         value={registerForm.phone}
-                        onChange={(e) => setRegisterForm({ ...registerForm, phone: e.target.value })}
+                        onChange={(e) =>
+                          setRegisterForm({
+                            ...registerForm,
+                            phone: e.target.value,
+                          })
+                        }
                         className="pl-10"
                         required
                       />
@@ -203,7 +233,12 @@ export function AuthForm() {
                         type="email"
                         placeholder="nama@email.com"
                         value={registerForm.email}
-                        onChange={(e) => setRegisterForm({ ...registerForm, email: e.target.value })}
+                        onChange={(e) =>
+                          setRegisterForm({
+                            ...registerForm,
+                            email: e.target.value,
+                          })
+                        }
                         className="pl-10"
                         required
                       />
@@ -219,7 +254,12 @@ export function AuthForm() {
                         type="password"
                         placeholder="Minimal 6 karakter"
                         value={registerForm.password}
-                        onChange={(e) => setRegisterForm({ ...registerForm, password: e.target.value })}
+                        onChange={(e) =>
+                          setRegisterForm({
+                            ...registerForm,
+                            password: e.target.value,
+                          })
+                        }
                         className="pl-10"
                         required
                       />
@@ -227,7 +267,9 @@ export function AuthForm() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="register-confirm">Konfirmasi Password</Label>
+                    <Label htmlFor="register-confirm">
+                      Konfirmasi Password
+                    </Label>
                     <div className="relative">
                       <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                       <Input
@@ -235,7 +277,12 @@ export function AuthForm() {
                         type="password"
                         placeholder="Ulangi password"
                         value={registerForm.confirmPassword}
-                        onChange={(e) => setRegisterForm({ ...registerForm, confirmPassword: e.target.value })}
+                        onChange={(e) =>
+                          setRegisterForm({
+                            ...registerForm,
+                            confirmPassword: e.target.value,
+                          })
+                        }
                         className="pl-10"
                         required
                       />
@@ -243,7 +290,9 @@ export function AuthForm() {
                   </div>
 
                   <Button type="submit" className="w-full" disabled={loading}>
-                    {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    {loading && (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    )}
                     Daftar Sekarang
                   </Button>
                 </form>

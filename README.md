@@ -1,73 +1,80 @@
-# Welcome to your Lovable project
+# At-Tauhid Laundry
 
-## Project info
+🧺 **Sistem Manajemen Laundry Sekolah**
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+Aplikasi manajemen laundry untuk sekolah yang dikembangkan oleh Yayasan At-Tauhid. Aplikasi ini membantu mengelola layanan laundry siswa secara efisien, mulai dari input order, tracking status, hingga pembayaran.
 
-## How can I edit this code?
+## Fitur Utama
 
-There are several ways of editing your application.
+- 📋 **Manajemen Order** - Input dan tracking order laundry siswa
+- 👨‍🎓 **Data Siswa** - Kelola data siswa dan kelas
+- 🏢 **Mitra Laundry** - Kelola mitra vendor laundry
+- 💰 **POS Kasir** - Sistem kasir untuk pembayaran
+- 📊 **Laporan** - Laporan pembayaran dan statistik
+- 📥 **Import/Export Data** - Migrasi data dari sistem lain
+- 👥 **Multi-Role** - Admin, Staff, Kasir, Orang Tua, Mitra
 
-**Use Lovable**
+## Teknologi
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+Proyek ini dibangun dengan:
 
-Changes made via Lovable will be committed automatically to this repo.
+- ⚡ **Vite** - Build tool yang cepat
+- 📘 **TypeScript** - Type-safe JavaScript
+- ⚛️ **React** - UI Library
+- 🎨 **shadcn/ui** - Komponen UI modern
+- 🎯 **Tailwind CSS** - Utility-first CSS framework
+- 🗄️ **Supabase** - Backend as a Service (Database, Auth, Storage)
 
-**Use your preferred IDE**
+## Memulai Pengembangan
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
+Pastikan Anda sudah menginstall Node.js & npm - [install dengan nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+# Clone repository
+git clone https://github.com/YayasanAt-Tauhid/Laundry-AtTauhid.git
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+# Masuk ke direktori proyek
+cd Laundry-AtTauhid
 
-# Step 3: Install the necessary dependencies.
-npm i
+# Install dependencies
+npm install
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# Jalankan development server
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+Aplikasi akan berjalan di `http://localhost:5173`
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## Struktur Proyek
 
-**Use GitHub Codespaces**
+```
+src/
+├── components/     # Komponen React
+│   ├── auth/       # Komponen autentikasi
+│   ├── dashboard/  # Komponen dashboard
+│   ├── import/     # Komponen import data
+│   ├── layout/     # Layout komponen
+│   └── ui/         # UI komponen (shadcn)
+├── hooks/          # Custom React hooks
+├── integrations/   # Integrasi Supabase
+├── lib/            # Utilitas dan konstanta
+└── pages/          # Halaman aplikasi
+```
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## Role Pengguna
 
-## What technologies are used for this project?
+| Role | Deskripsi |
+|------|-----------|
+| Admin | Akses penuh ke semua fitur |
+| Staff | Input order dan kelola data laundry |
+| Kasir | Proses pembayaran dan laporan kasir |
+| Orang Tua | Lihat tagihan dan data anak |
+| Mitra | Kelola order yang diterima |
 
-This project is built with:
+## Kontribusi
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+Kontribusi selalu diterima! Silakan buat issue atau pull request untuk perbaikan dan fitur baru.
 
-## How can I deploy this project?
+## Lisensi
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+© 2024 Yayasan At-Tauhid. All rights reserved.
