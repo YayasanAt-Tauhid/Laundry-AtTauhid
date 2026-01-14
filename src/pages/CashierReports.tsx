@@ -50,6 +50,10 @@ interface PaymentRecord {
   status: string;
   paid_at: string;
   created_at: string;
+  laundry_date: string;
+  wadiah_used: number | null;
+  change_amount: number | null;
+  paid_amount: number | null;
   students: {
     id: string;
     name: string;
@@ -158,6 +162,10 @@ export default function CashierReports() {
                   status,
                   paid_at,
                   created_at,
+                  laundry_date,
+                  wadiah_used,
+                  change_amount,
+                  paid_amount,
                   students!inner (id, name, class),
                   laundry_partners (name)
                 `,
@@ -312,13 +320,193 @@ export default function CashierReports() {
   };
 
   const formatDateTime = (date: string) => {
-    return new Date(date).toLocaleString("id-ID", {
+    return new Date(date).toLocaleDateString("id-ID", {
       day: "numeric",
       month: "short",
       year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
     });
+  };
+
+  const formatLaundryDate = (date: string) => {
+    return new Date(date + "T00:00:00").toLocaleDateString("id-ID", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  };
+
+  const handlePrintReceipt = (payment: PaymentRecord) => {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description:
+          "Tidak dapat membuka jendela cetak. Periksa pop-up blocker.",
+      });
+      return;
+    }
+
+    const receiptNumber = `RCP-${payment.id.slice(0, 8).toUpperCase()}`;
+    const paidDate = new Date(payment.paid_at);
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Kwitansi - ${receiptNumber}</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body {
+            font-family: 'Courier New', monospace;
+            padding: 10mm;
+            max-width: 80mm;
+            margin: 0 auto;
+          }
+          .receipt { width: 100%; }
+          .header { text-align: center; margin-bottom: 10px; border-bottom: 1px dashed #000; padding-bottom: 10px; }
+          .header h1 { font-size: 16px; font-weight: bold; }
+          .header p { font-size: 11px; margin-top: 4px; }
+          .info { margin: 10px 0; font-size: 11px; }
+          .info-row { display: flex; justify-content: space-between; margin: 3px 0; }
+          .divider { border-top: 1px dashed #000; margin: 10px 0; }
+          .items { margin: 10px 0; }
+          .item { font-size: 11px; margin: 5px 0; }
+          .item-name { font-weight: bold; }
+          .item-detail { display: flex; justify-content: space-between; }
+          .total-section { border-top: 1px dashed #000; padding-top: 10px; margin-top: 10px; }
+          .total-row { display: flex; justify-content: space-between; font-size: 12px; margin: 3px 0; }
+          .total-row.grand { font-size: 14px; font-weight: bold; margin-top: 5px; }
+          .footer { text-align: center; margin-top: 15px; font-size: 10px; border-top: 1px dashed #000; padding-top: 10px; }
+          @media print {
+            body { padding: 0; }
+            @page { margin: 5mm; size: 80mm auto; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="receipt">
+          <div class="header">
+            <h1>LAUNDRY AT-TAUHID</h1>
+            <p>Pondok Pesantren At-Tauhid</p>
+            <p>Kwitansi Pembayaran</p>
+          </div>
+
+          <div class="info">
+            <div class="info-row">
+              <span>No. Kwitansi:</span>
+              <span>${receiptNumber}</span>
+            </div>
+            <div class="info-row">
+              <span>Tanggal Bayar:</span>
+              <span>${paidDate.toLocaleDateString("id-ID", { day: "2-digit", month: "2-digit", year: "numeric" })}</span>
+            </div>
+            <div class="info-row">
+              <span>Waktu:</span>
+              <span>${paidDate.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}</span>
+            </div>
+            <div class="info-row">
+              <span>Kasir:</span>
+              <span>${profile?.full_name || "-"}</span>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="info">
+            <div class="info-row">
+              <span>Siswa:</span>
+              <span>${payment.students?.name || "-"}</span>
+            </div>
+            <div class="info-row">
+              <span>Kelas:</span>
+              <span>${payment.students?.class || "-"}</span>
+            </div>
+            <div class="info-row">
+              <span>Tgl Laundry:</span>
+              <span>${formatLaundryDate(payment.laundry_date)}</span>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="items">
+            <div class="item">
+              <div class="item-name">${LAUNDRY_CATEGORIES[payment.category as keyof typeof LAUNDRY_CATEGORIES]?.label || payment.category}</div>
+              <div class="item-detail">
+                <span>${payment.category === "kiloan" ? `${payment.weight_kg} kg` : `${payment.item_count} pcs`}</span>
+                <span>${formatCurrency(payment.total_price)}</span>
+              </div>
+              <div style="font-size: 10px; color: #666;">Mitra: ${payment.laundry_partners?.name || "-"}</div>
+            </div>
+          </div>
+
+          <div class="total-section">
+            <div class="total-row">
+              <span>Subtotal:</span>
+              <span>${formatCurrency(payment.total_price)}</span>
+            </div>
+            ${
+              payment.wadiah_used && payment.wadiah_used > 0
+                ? `
+            <div class="total-row">
+              <span>Wadiah Digunakan:</span>
+              <span>- ${formatCurrency(payment.wadiah_used)}</span>
+            </div>
+            `
+                : ""
+            }
+            <div class="total-row grand">
+              <span>TOTAL:</span>
+              <span>${formatCurrency(payment.total_price - (payment.wadiah_used || 0))}</span>
+            </div>
+            ${
+              payment.paid_amount
+                ? `
+            <div class="total-row">
+              <span>Dibayar:</span>
+              <span>${formatCurrency(payment.paid_amount)}</span>
+            </div>
+            `
+                : ""
+            }
+            ${
+              payment.change_amount && payment.change_amount > 0
+                ? `
+            <div class="total-row">
+              <span>Kembalian:</span>
+              <span>${formatCurrency(payment.change_amount)}</span>
+            </div>
+            `
+                : ""
+            }
+            <div class="total-row">
+              <span>Metode:</span>
+              <span>${payment.payment_method === "cash" ? "TUNAI" : "TRANSFER"}</span>
+            </div>
+          </div>
+
+          <div class="footer">
+            <p>Terima kasih atas kepercayaan Anda</p>
+            <p>Semoga berkah & bermanfaat</p>
+            <p style="margin-top: 8px;">--- LUNAS ---</p>
+          </div>
+        </div>
+        <script>
+          window.onload = function() {
+            window.print();
+            window.onafterprint = function() {
+              window.close();
+            };
+          };
+        </script>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
   };
 
   /* Client-side filter removed in favor of Server-side filter */
@@ -814,7 +1002,10 @@ export default function CashierReports() {
                         <thead>
                           <tr className="border-b">
                             <th className="text-left py-3 px-4 font-medium text-muted-foreground">
-                              Waktu
+                              Waktu Bayar
+                            </th>
+                            <th className="text-left py-3 px-4 font-medium text-muted-foreground">
+                              Tgl Laundry
                             </th>
                             <th className="text-left py-3 px-4 font-medium text-muted-foreground">
                               Siswa
@@ -854,6 +1045,11 @@ export default function CashierReports() {
                                     </p>
                                   </div>
                                 </div>
+                              </td>
+                              <td className="py-3 px-4">
+                                <p className="text-sm">
+                                  {formatLaundryDate(payment.laundry_date)}
+                                </p>
                               </td>
                               <td className="py-3 px-4">
                                 <div className="flex items-center gap-2">
@@ -907,13 +1103,23 @@ export default function CashierReports() {
                                 </span>
                               </td>
                               <td className="py-3 px-4">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleViewDetail(payment)}
-                                >
-                                  Detail
-                                </Button>
+                                <div className="flex items-center gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleViewDetail(payment)}
+                                  >
+                                    Detail
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handlePrintReceipt(payment)}
+                                    title="Cetak Kwitansi"
+                                  >
+                                    <Printer className="h-4 w-4" />
+                                  </Button>
+                                </div>
                               </td>
                             </tr>
                           ))}
@@ -985,6 +1191,14 @@ export default function CashierReports() {
                     </span>
                   </div>
                   <div className="flex justify-between">
+                    <span className="text-muted-foreground">
+                      Tanggal Laundry
+                    </span>
+                    <span className="font-medium">
+                      {formatLaundryDate(selectedPayment.laundry_date)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
                     <span className="text-muted-foreground">Tanggal Bayar</span>
                     <span>{formatDateTime(selectedPayment.paid_at)}</span>
                   </div>
@@ -996,6 +1210,17 @@ export default function CashierReports() {
                         : "Transfer"}
                     </span>
                   </div>
+                  {selectedPayment.wadiah_used &&
+                    selectedPayment.wadiah_used > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">
+                          Wadiah Digunakan
+                        </span>
+                        <span className="text-blue-600 font-medium">
+                          {formatCurrency(selectedPayment.wadiah_used)}
+                        </span>
+                      </div>
+                    )}
                 </div>
 
                 <div className="space-y-2">
@@ -1049,6 +1274,16 @@ export default function CashierReports() {
                       {formatCurrency(selectedPayment.total_price)}
                     </span>
                   </div>
+                </div>
+
+                <div className="pt-4">
+                  <Button
+                    className="w-full"
+                    onClick={() => handlePrintReceipt(selectedPayment)}
+                  >
+                    <Printer className="h-4 w-4 mr-2" />
+                    Cetak Kwitansi
+                  </Button>
                 </div>
               </div>
             )}

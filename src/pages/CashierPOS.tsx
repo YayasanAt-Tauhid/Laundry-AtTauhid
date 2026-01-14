@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useMidtrans } from "@/hooks/useMidtrans";
+import { useWadiah } from "@/hooks/useWadiah";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,7 @@ import {
   Banknote,
   AlertCircle,
   Calculator,
+  Wallet,
 } from "lucide-react";
 import { LAUNDRY_CATEGORIES, type OrderStatus } from "@/lib/constants";
 import {
@@ -49,6 +51,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  SyariahPolicyInfo,
+  SyariahPaymentDialog,
+  WadiahBalanceCard,
+  type SyariahPaymentData,
+} from "@/components/syariah";
 
 interface Bill {
   id: string;
@@ -60,6 +68,7 @@ interface Bill {
   payment_method: string | null;
   status: OrderStatus;
   created_at: string;
+  laundry_date: string;
   students: {
     id: string;
     name: string;
@@ -95,6 +104,9 @@ interface PaymentReceipt {
   total: number;
   paidAmount: number;
   changeAmount: number;
+  wadiahUsed?: number;
+  roundingDiscount?: number;
+  wadiahDeposited?: number;
 }
 
 interface StudentSuggestion {
@@ -105,7 +117,7 @@ interface StudentSuggestion {
 
 export default function CashierPOS() {
   const { toast } = useToast();
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   const { confirmPaymentManually, isProcessing } = useMidtrans();
   const [bills, setBills] = useState<Bill[]>([]);
   const [loading, setLoading] = useState(false);
@@ -123,7 +135,9 @@ export default function CashierPOS() {
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Payment modal states
+  // Payment modal states - Syariah
+  const [showSyariahPaymentDialog, setShowSyariahPaymentDialog] =
+    useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer">(
     "cash",
@@ -133,6 +147,14 @@ export default function CashierPOS() {
   const [showReceiptModal, setShowReceiptModal] = useState(false);
 
   const receiptRef = useRef<HTMLDivElement>(null);
+
+  // Wadiah hook for syariah transactions
+  const {
+    depositChange,
+    applyBalanceForPayment,
+    recordSedekah,
+    formatCurrency: formatWadiahCurrency,
+  } = useWadiah();
 
   // Fetch available classes on mount (lightweight query)
   useEffect(() => {
@@ -273,13 +295,14 @@ export default function CashierPOS() {
                     payment_method,
                     status,
                     created_at,
+                    laundry_date,
                     students (id, name, class),
                     laundry_partners (name)
                 `,
         )
         .in("student_id", studentIds)
         .in("status", ["DISETUJUI_MITRA", "MENUNGGU_PEMBAYARAN"])
-        .order("created_at", { ascending: false });
+        .order("laundry_date", { ascending: false });
 
       if (error) throw error;
       setBills(data || []);
@@ -364,6 +387,15 @@ export default function CashierPOS() {
     });
   };
 
+  const formatLaundryDate = (date: string) => {
+    return new Date(date + "T00:00:00").toLocaleDateString("id-ID", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  };
+
   const toggleBillSelection = (billId: string) => {
     const newSelected = new Set(selectedBills);
     if (newSelected.has(billId)) {
@@ -395,8 +427,152 @@ export default function CashierPOS() {
       });
       return;
     }
-    setPaidAmount(selectedTotal.toString());
-    setShowPaymentModal(true);
+    setPaidAmount("");
+    setPaymentMethod("cash");
+    // Use Syariah Payment Dialog
+    setShowSyariahPaymentDialog(true);
+  };
+
+  // Handle Syariah Payment with wadiah and rounding
+  const handleSyariahPayment = async (
+    paymentData: SyariahPaymentData,
+  ): Promise<boolean> => {
+    setProcessingPayment(true);
+
+    try {
+      const studentId = selectedBillsList[0]?.students?.id;
+      if (!studentId) {
+        throw new Error("Student ID tidak ditemukan");
+      }
+
+      // 1. Use wadiah balance if applicable
+      if (paymentData.wadiahUsed > 0) {
+        for (const bill of selectedBillsList) {
+          const wadiahPortion = Math.round(
+            (bill.total_price / paymentData.totalAmount) *
+              paymentData.wadiahUsed,
+          );
+          if (wadiahPortion > 0) {
+            await applyBalanceForPayment(studentId, wadiahPortion, bill.id);
+          }
+        }
+      }
+
+      // 2. Record sedekah (rounding discount) if applicable
+      if (paymentData.roundingApplied > 0) {
+        await recordSedekah(
+          studentId,
+          paymentData.roundingApplied,
+          selectedBillsList[0]?.id,
+          paymentData.totalAmount - paymentData.wadiahUsed,
+          paymentData.finalAmount,
+        );
+      }
+
+      // 3. Process each selected bill payment
+      const paymentPromises = selectedBillsList.map((bill) =>
+        confirmPaymentManually(
+          bill.id,
+          paymentData.paymentMethod === "cash" ? "cash" : "bank_transfer",
+        ),
+      );
+
+      const results = await Promise.all(paymentPromises);
+      const allSuccess = results.every((r) => r === true);
+
+      // 4. Update order with syariah payment details
+      for (const bill of selectedBillsList) {
+        await supabase
+          .from("laundry_orders")
+          .update({
+            paid_amount: paymentData.paidAmount,
+            change_amount: paymentData.changeAmount,
+            wadiah_used: paymentData.wadiahUsed,
+            rounding_applied: paymentData.roundingApplied,
+            rounding_type: paymentData.roundingType,
+          })
+          .eq("id", bill.id);
+      }
+
+      // 5. Deposit change to wadiah if requested
+      if (
+        paymentData.changeAction === "wadiah" &&
+        paymentData.changeAmount > 0
+      ) {
+        await depositChange(
+          studentId,
+          paymentData.changeAmount,
+          selectedBillsList[0]?.id,
+          "Sisa kembalian dari pembayaran laundry",
+        );
+      }
+
+      if (allSuccess) {
+        // Generate receipt with syariah details
+        const receiptData: PaymentReceipt = {
+          receiptNumber: `RCP-${Date.now().toString().slice(-8)}`,
+          date: new Date().toLocaleDateString("id-ID"),
+          time: new Date().toLocaleTimeString("id-ID"),
+          cashierName: profile?.full_name || "Kasir",
+          studentName: selectedBillsList[0]?.students?.name || "-",
+          studentClass: selectedBillsList[0]?.students?.class || "-",
+          items: selectedBillsList.map((bill) => ({
+            category:
+              LAUNDRY_CATEGORIES[
+                bill.category as keyof typeof LAUNDRY_CATEGORIES
+              ]?.label || bill.category,
+            quantity:
+              bill.category === "kiloan"
+                ? `${bill.weight_kg} kg`
+                : `${bill.item_count} pcs`,
+            price: bill.total_price,
+          })),
+          subtotal: paymentData.totalAmount,
+          paymentMethod:
+            paymentData.paymentMethod === "cash" ? "Tunai" : "Transfer",
+          total: paymentData.finalAmount,
+          paidAmount: paymentData.paidAmount,
+          changeAmount: paymentData.changeAmount,
+          wadiahUsed: paymentData.wadiahUsed,
+          roundingDiscount: paymentData.roundingApplied,
+          wadiahDeposited:
+            paymentData.changeAction === "wadiah"
+              ? paymentData.changeAmount
+              : 0,
+        };
+
+        setReceipt(receiptData);
+        setShowSyariahPaymentDialog(false);
+        setShowReceiptModal(true);
+
+        toast({
+          title: "Pembayaran Berhasil",
+          description: `${selectedBills.size} tagihan telah dikonfirmasi sesuai prinsip syariah`,
+        });
+
+        // Refresh data and clear selection
+        refreshBills();
+        setSelectedBills(new Set());
+        return true;
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Sebagian gagal",
+          description: "Beberapa pembayaran gagal diproses",
+        });
+        return false;
+      }
+    } catch (error) {
+      console.error("Syariah payment error:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Gagal memproses pembayaran syariah",
+      });
+      return false;
+    } finally {
+      setProcessingPayment(false);
+    }
   };
 
   const handleConfirmPayment = async () => {
@@ -485,7 +661,25 @@ export default function CashierPOS() {
 
   const handlePrintReceipt = () => {
     const printContent = receiptRef.current;
-    if (!printContent) return;
+    if (!printContent || !receipt) return;
+
+    // Build syariah-compliant receipt content
+    const syariahDetails = [];
+    if (receipt.wadiahUsed && receipt.wadiahUsed > 0) {
+      syariahDetails.push(
+        `Saldo Wadiah Digunakan: -${formatWadiahCurrency(receipt.wadiahUsed)}`,
+      );
+    }
+    if (receipt.roundingDiscount && receipt.roundingDiscount > 0) {
+      syariahDetails.push(
+        `Diskon Pembulatan (Sedekah): -${formatWadiahCurrency(receipt.roundingDiscount)}`,
+      );
+    }
+    if (receipt.wadiahDeposited && receipt.wadiahDeposited > 0) {
+      syariahDetails.push(
+        `Disimpan ke Saldo Wadiah: +${formatWadiahCurrency(receipt.wadiahDeposited)}`,
+      );
+    }
 
     const printWindow = window.open("", "_blank");
     if (!printWindow) return;
@@ -576,6 +770,9 @@ export default function CashierPOS() {
 
   const quickAmounts = [50000, 100000, 150000, 200000, 500000];
 
+  // Get first selected student for wadiah display
+  const firstSelectedStudentId = selectedBillsList[0]?.students?.id;
+
   return (
     <DashboardLayout>
       <div className="space-y-6 animate-fade-in">
@@ -587,7 +784,7 @@ export default function CashierPOS() {
               POS Kasir
             </h1>
             <p className="text-muted-foreground mt-1">
-              Proses pembayaran tagihan laundry dengan cepat
+              Proses pembayaran tagihan laundry dengan cepat dan sesuai syariah
             </p>
           </div>
 
@@ -617,6 +814,9 @@ export default function CashierPOS() {
             </div>
           )}
         </div>
+
+        {/* Syariah Policy Info Banner */}
+        <SyariahPolicyInfo variant="banner" showOnlyOnce className="mb-2" />
 
         {/* Search and Filter Bar with Autocomplete */}
         <Card className="dashboard-card">
@@ -891,9 +1091,10 @@ export default function CashierPOS() {
                                 </span>
                                 <span>•</span>
                                 <span>{bill.laundry_partners?.name}</span>
-                                <span>•</span>
-                                <span>{formatDate(bill.created_at)}</span>
                               </div>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                📅 {formatLaundryDate(bill.laundry_date)}
+                              </p>
                             </div>
                           </div>
                           <div className="flex items-center gap-3">
@@ -1120,6 +1321,22 @@ export default function CashierPOS() {
                     <span>Subtotal</span>
                     <span>{formatCurrency(receipt.subtotal)}</span>
                   </div>
+                  {/* Syariah Details */}
+                  {receipt.wadiahUsed && receipt.wadiahUsed > 0 && (
+                    <div className="flex justify-between text-xs text-amber-600">
+                      <span className="flex items-center gap-1">
+                        <Wallet className="h-3 w-3" />
+                        Saldo Wadiah
+                      </span>
+                      <span>-{formatCurrency(receipt.wadiahUsed)}</span>
+                    </div>
+                  )}
+                  {receipt.roundingDiscount && receipt.roundingDiscount > 0 && (
+                    <div className="flex justify-between text-xs text-emerald-600">
+                      <span>Diskon Pembulatan ❤️</span>
+                      <span>-{formatCurrency(receipt.roundingDiscount)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between font-bold">
                     <span>TOTAL</span>
                     <span>{formatCurrency(receipt.total)}</span>
@@ -1138,10 +1355,20 @@ export default function CashierPOS() {
                       <span>{formatCurrency(receipt.changeAmount)}</span>
                     </div>
                   )}
+                  {receipt.wadiahDeposited && receipt.wadiahDeposited > 0 && (
+                    <div className="flex justify-between text-xs text-amber-600">
+                      <span className="flex items-center gap-1">
+                        <Wallet className="h-3 w-3" />
+                        Disimpan ke Wadiah
+                      </span>
+                      <span>+{formatCurrency(receipt.wadiahDeposited)}</span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="border-t border-dashed pt-3 text-center text-xs text-muted-foreground">
                   <p>Terima kasih atas pembayaran Anda!</p>
+                  <p className="mt-1">🌙 Transaksi Sesuai Syariah</p>
                   <p className="mt-1">At-Tauhid Laundry</p>
                 </div>
               </div>
@@ -1161,6 +1388,34 @@ export default function CashierPOS() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Syariah Payment Dialog */}
+        <SyariahPaymentDialog
+          open={showSyariahPaymentDialog}
+          onOpenChange={setShowSyariahPaymentDialog}
+          bills={selectedBillsList.map((bill) => ({
+            id: bill.id,
+            student_id: bill.students?.id || "",
+            total_price: bill.total_price,
+            category: bill.category,
+            students: bill.students,
+          }))}
+          onConfirmPayment={handleSyariahPayment}
+          isProcessing={processingPayment}
+        />
+
+        {/* Wadiah Balance Card (shown when bills are selected) */}
+        {firstSelectedStudentId && selectedBills.size > 0 && (
+          <div className="fixed bottom-4 right-4 z-40 w-80 hidden lg:block">
+            <WadiahBalanceCard
+              studentId={firstSelectedStudentId}
+              studentName={selectedBillsList[0]?.students?.name}
+              compact={false}
+              showTransactions={false}
+              className="shadow-lg"
+            />
+          </div>
+        )}
       </div>
     </DashboardLayout>
   );

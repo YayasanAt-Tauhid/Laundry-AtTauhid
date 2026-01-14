@@ -1,22 +1,22 @@
-import { useEffect, useState } from 'react';
-import { useAuth } from '@/hooks/useAuth';
-import { DashboardLayout } from '@/components/layout/DashboardLayout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { StatusBadge } from '@/components/ui/StatusBadge';
+import { useEffect, useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
+import { DashboardLayout } from "@/components/layout/DashboardLayout";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
-import { supabase } from '@/integrations/supabase/client';
-import { useToast } from '@/hooks/use-toast';
-import { Link } from 'react-router-dom';
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
+import { Link } from "react-router-dom";
 import {
   Plus,
   Search,
@@ -27,8 +27,8 @@ import {
   Eye,
   ChevronLeft,
   ChevronRight,
-} from 'lucide-react';
-import { LAUNDRY_CATEGORIES, type OrderStatus } from '@/lib/constants';
+} from "lucide-react";
+import { LAUNDRY_CATEGORIES, type OrderStatus } from "@/lib/constants";
 
 interface Order {
   id: string;
@@ -43,6 +43,7 @@ interface Order {
   rejection_reason: string | null;
   notes: string | null;
   created_at: string;
+  laundry_date: string;
   students: {
     name: string;
     class: string;
@@ -59,11 +60,11 @@ export default function Orders() {
   const { toast } = useToast();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
-  const [rejectionReason, setRejectionReason] = useState('');
+  const [rejectionReason, setRejectionReason] = useState("");
   const [processing, setProcessing] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
@@ -82,25 +83,25 @@ export default function Orders() {
       setLoading(true);
 
       // Build base query
-      let query = supabase
-        .from('laundry_orders')
-        .select(`
+      let query = supabase.from("laundry_orders").select(
+        `
           *,
+          laundry_date,
           students (name, class),
           laundry_partners (name)
-        `, { count: 'exact' });
+        `,
+        { count: "exact" },
+      );
 
       // Apply search filter on server side if search term exists
       if (searchTerm.trim()) {
         // We'll filter on client side for complex joins, but limit server fetch
-        query = query.order('created_at', { ascending: false });
+        query = query.order("created_at", { ascending: false });
       } else {
         // Paginate only when not searching
         const from = currentPage * PAGE_SIZE;
         const to = from + PAGE_SIZE - 1;
-        query = query
-          .order('created_at', { ascending: false })
-          .range(from, to);
+        query = query.order("created_at", { ascending: false }).range(from, to);
       }
 
       const { data, error, count } = await query;
@@ -109,11 +110,11 @@ export default function Orders() {
       setOrders(data || []);
       setTotalCount(count || 0);
     } catch (error) {
-      console.error('Error fetching orders:', error);
+      console.error("Error fetching orders:", error);
       toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Gagal memuat data order',
+        variant: "destructive",
+        title: "Error",
+        description: "Gagal memuat data order",
       });
     } finally {
       setLoading(false);
@@ -124,27 +125,27 @@ export default function Orders() {
     setProcessing(true);
     try {
       const { error } = await supabase
-        .from('laundry_orders')
+        .from("laundry_orders")
         .update({
-          status: 'DISETUJUI_MITRA',
+          status: "DISETUJUI_MITRA",
           approved_at: new Date().toISOString(),
           approved_by: user?.id,
         })
-        .eq('id', order.id);
+        .eq("id", order.id);
 
       if (error) throw error;
 
       toast({
-        title: 'Berhasil',
-        description: 'Order telah disetujui',
+        title: "Berhasil",
+        description: "Order telah disetujui",
       });
 
       fetchOrders();
     } catch (error: any) {
       toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: error.message || 'Gagal menyetujui order',
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Gagal menyetujui order",
       });
     } finally {
       setProcessing(false);
@@ -154,9 +155,9 @@ export default function Orders() {
   const handleReject = async () => {
     if (!selectedOrder || !rejectionReason.trim()) {
       toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Alasan penolakan wajib diisi',
+        variant: "destructive",
+        title: "Error",
+        description: "Alasan penolakan wajib diisi",
       });
       return;
     }
@@ -164,29 +165,29 @@ export default function Orders() {
     setProcessing(true);
     try {
       const { error } = await supabase
-        .from('laundry_orders')
+        .from("laundry_orders")
         .update({
-          status: 'DITOLAK_MITRA',
+          status: "DITOLAK_MITRA",
           rejection_reason: rejectionReason,
         })
-        .eq('id', selectedOrder.id);
+        .eq("id", selectedOrder.id);
 
       if (error) throw error;
 
       toast({
-        title: 'Order Ditolak',
-        description: 'Order telah ditolak',
+        title: "Order Ditolak",
+        description: "Order telah ditolak",
       });
 
       setRejectDialogOpen(false);
-      setRejectionReason('');
+      setRejectionReason("");
       setSelectedOrder(null);
       fetchOrders();
     } catch (error: any) {
       toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: error.message || 'Gagal menolak order',
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Gagal menolak order",
       });
     } finally {
       setProcessing(false);
@@ -204,18 +205,27 @@ export default function Orders() {
   };
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('id-ID', {
-      style: 'currency',
-      currency: 'IDR',
+    return new Intl.NumberFormat("id-ID", {
+      style: "currency",
+      currency: "IDR",
       minimumFractionDigits: 0,
     }).format(amount);
   };
 
   const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString('id-ID', {
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
+    return new Date(date).toLocaleDateString("id-ID", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  };
+
+  const formatLaundryDate = (date: string) => {
+    return new Date(date + "T00:00:00").toLocaleDateString("id-ID", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
     });
   };
 
@@ -236,13 +246,13 @@ export default function Orders() {
           <div>
             <h1 className="text-2xl font-bold text-foreground">Daftar Order</h1>
             <p className="text-muted-foreground mt-1">
-              {userRole === 'partner'
-                ? 'Order yang perlu Anda approve'
-                : 'Kelola semua order laundry'}
+              {userRole === "partner"
+                ? "Order yang perlu Anda approve"
+                : "Kelola semua order laundry"}
             </p>
           </div>
 
-          {userRole === 'staff' && (
+          {userRole === "staff" && (
             <Button asChild>
               <Link to="/orders/new">
                 <Plus className="h-4 w-4 mr-2" />
@@ -277,7 +287,9 @@ export default function Orders() {
                   Belum ada order
                 </h3>
                 <p className="text-muted-foreground text-center mb-4">
-                  {searchTerm ? 'Tidak ditemukan order yang sesuai' : 'Order laundry akan muncul di sini'}
+                  {searchTerm
+                    ? "Tidak ditemukan order yang sesuai"
+                    : "Order laundry akan muncul di sini"}
                 </p>
               </div>
             ) : (
@@ -302,11 +314,13 @@ export default function Orders() {
                       {/* Order Details */}
                       <div className="flex flex-wrap items-center gap-2 text-sm">
                         <span className="inline-flex items-center px-2 py-1 rounded-md bg-muted/50 text-muted-foreground">
-                          {LAUNDRY_CATEGORIES[order.category as keyof typeof LAUNDRY_CATEGORIES]?.label || order.category}
+                          {LAUNDRY_CATEGORIES[
+                            order.category as keyof typeof LAUNDRY_CATEGORIES
+                          ]?.label || order.category}
                         </span>
                         <span className="text-muted-foreground">•</span>
                         <span className="text-muted-foreground">
-                          {order.category === 'kiloan'
+                          {order.category === "kiloan"
                             ? `${order.weight_kg} kg`
                             : `${order.item_count} pcs`}
                         </span>
@@ -319,7 +333,7 @@ export default function Orders() {
                       {/* Partner & Date */}
                       <div className="flex items-center justify-between text-sm text-muted-foreground">
                         <span>Mitra: {order.laundry_partners?.name}</span>
-                        <span>{formatDate(order.created_at)}</span>
+                        <span>📅 {formatLaundryDate(order.laundry_date)}</span>
                       </div>
 
                       {/* Action Buttons */}
@@ -334,29 +348,30 @@ export default function Orders() {
                           Detail
                         </Button>
 
-                        {userRole === 'partner' && order.status === 'MENUNGGU_APPROVAL_MITRA' && (
-                          <>
-                            <Button
-                              size="sm"
-                              className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
-                              onClick={() => handleApprove(order)}
-                              disabled={processing}
-                            >
-                              <CheckCircle className="h-4 w-4 mr-2" />
-                              Setujui
-                            </Button>
-                            <Button
-                              variant="destructive"
-                              size="sm"
-                              className="flex-1"
-                              onClick={() => openRejectDialog(order)}
-                              disabled={processing}
-                            >
-                              <XCircle className="h-4 w-4 mr-2" />
-                              Tolak
-                            </Button>
-                          </>
-                        )}
+                        {userRole === "partner" &&
+                          order.status === "MENUNGGU_APPROVAL_MITRA" && (
+                            <>
+                              <Button
+                                size="sm"
+                                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                                onClick={() => handleApprove(order)}
+                                disabled={processing}
+                              >
+                                <CheckCircle className="h-4 w-4 mr-2" />
+                                Setujui
+                              </Button>
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                className="flex-1"
+                                onClick={() => openRejectDialog(order)}
+                                disabled={processing}
+                              >
+                                <XCircle className="h-4 w-4 mr-2" />
+                                Tolak
+                              </Button>
+                            </>
+                          )}
                       </div>
                     </div>
                   ))}
@@ -367,36 +382,69 @@ export default function Orders() {
                   <table className="w-full">
                     <thead className="bg-muted/30">
                       <tr>
-                        <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Siswa</th>
-                        <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Kelas</th>
-                        <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Mitra</th>
-                        <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Kategori</th>
-                        <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Jumlah</th>
-                        <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Total</th>
-                        <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Status</th>
-                        <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Tanggal</th>
-                        <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">Aksi</th>
+                        <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
+                          Siswa
+                        </th>
+                        <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
+                          Kelas
+                        </th>
+                        <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
+                          Mitra
+                        </th>
+                        <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
+                          Kategori
+                        </th>
+                        <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
+                          Jumlah
+                        </th>
+                        <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
+                          Total
+                        </th>
+                        <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
+                          Status
+                        </th>
+                        <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
+                          Tgl Laundry
+                        </th>
+                        <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
+                          Aksi
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredOrders.map((order) => (
-                        <tr key={order.id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
-                          <td className="py-4 px-6 font-medium">{order.students?.name}</td>
-                          <td className="py-4 px-6 text-muted-foreground">{order.students?.class}</td>
-                          <td className="py-4 px-6 text-muted-foreground">{order.laundry_partners?.name}</td>
-                          <td className="py-4 px-6">
-                            {LAUNDRY_CATEGORIES[order.category as keyof typeof LAUNDRY_CATEGORIES]?.label || order.category}
+                        <tr
+                          key={order.id}
+                          className="border-b border-border/50 hover:bg-muted/20 transition-colors"
+                        >
+                          <td className="py-4 px-6 font-medium">
+                            {order.students?.name}
+                          </td>
+                          <td className="py-4 px-6 text-muted-foreground">
+                            {order.students?.class}
+                          </td>
+                          <td className="py-4 px-6 text-muted-foreground">
+                            {order.laundry_partners?.name}
                           </td>
                           <td className="py-4 px-6">
-                            {order.category === 'kiloan'
+                            {LAUNDRY_CATEGORIES[
+                              order.category as keyof typeof LAUNDRY_CATEGORIES
+                            ]?.label || order.category}
+                          </td>
+                          <td className="py-4 px-6">
+                            {order.category === "kiloan"
                               ? `${order.weight_kg} kg`
                               : `${order.item_count} pcs`}
                           </td>
-                          <td className="py-4 px-6 font-medium">{formatCurrency(order.total_price)}</td>
+                          <td className="py-4 px-6 font-medium">
+                            {formatCurrency(order.total_price)}
+                          </td>
                           <td className="py-4 px-6">
                             <StatusBadge status={order.status} />
                           </td>
-                          <td className="py-4 px-6 text-muted-foreground">{formatDate(order.created_at)}</td>
+                          <td className="py-4 px-6 text-muted-foreground">
+                            {formatLaundryDate(order.laundry_date)}
+                          </td>
                           <td className="py-4 px-6">
                             <div className="flex items-center gap-2">
                               <Button
@@ -407,28 +455,29 @@ export default function Orders() {
                                 <Eye className="h-4 w-4" />
                               </Button>
 
-                              {userRole === 'partner' && order.status === 'MENUNGGU_APPROVAL_MITRA' && (
-                                <>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="text-success hover:text-success"
-                                    onClick={() => handleApprove(order)}
-                                    disabled={processing}
-                                  >
-                                    <CheckCircle className="h-4 w-4" />
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="text-destructive hover:text-destructive"
-                                    onClick={() => openRejectDialog(order)}
-                                    disabled={processing}
-                                  >
-                                    <XCircle className="h-4 w-4" />
-                                  </Button>
-                                </>
-                              )}
+                              {userRole === "partner" &&
+                                order.status === "MENUNGGU_APPROVAL_MITRA" && (
+                                  <>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="text-success hover:text-success"
+                                      onClick={() => handleApprove(order)}
+                                      disabled={processing}
+                                    >
+                                      <CheckCircle className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="text-destructive hover:text-destructive"
+                                      onClick={() => openRejectDialog(order)}
+                                      disabled={processing}
+                                    >
+                                      <XCircle className="h-4 w-4" />
+                                    </Button>
+                                  </>
+                                )}
                             </div>
                           </td>
                         </tr>
@@ -444,7 +493,9 @@ export default function Orders() {
           {!searchTerm.trim() && totalCount > PAGE_SIZE && (
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 border-t border-border">
               <div className="text-sm text-muted-foreground">
-                Menampilkan {currentPage * PAGE_SIZE + 1} - {Math.min((currentPage + 1) * PAGE_SIZE, totalCount)} dari {totalCount} order
+                Menampilkan {currentPage * PAGE_SIZE + 1} -{" "}
+                {Math.min((currentPage + 1) * PAGE_SIZE, totalCount)} dari{" "}
+                {totalCount} order
               </div>
               <div className="flex items-center gap-2">
                 <Button
@@ -457,13 +508,16 @@ export default function Orders() {
                   Sebelumnya
                 </Button>
                 <div className="flex items-center gap-1 px-3 py-1 rounded-md bg-muted text-sm font-medium">
-                  Halaman {currentPage + 1} dari {Math.ceil(totalCount / PAGE_SIZE)}
+                  Halaman {currentPage + 1} dari{" "}
+                  {Math.ceil(totalCount / PAGE_SIZE)}
                 </div>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setCurrentPage((p) => p + 1)}
-                  disabled={(currentPage + 1) * PAGE_SIZE >= totalCount || loading}
+                  disabled={
+                    (currentPage + 1) * PAGE_SIZE >= totalCount || loading
+                  }
                 >
                   Selanjutnya
                   <ChevronRight className="h-4 w-4 ml-1" />
@@ -484,41 +538,61 @@ export default function Orders() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <p className="text-sm text-muted-foreground">Siswa</p>
-                    <p className="font-medium">{selectedOrder.students?.name}</p>
+                    <p className="font-medium">
+                      {selectedOrder.students?.name}
+                    </p>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Kelas</p>
-                    <p className="font-medium">{selectedOrder.students?.class}</p>
+                    <p className="font-medium">
+                      {selectedOrder.students?.class}
+                    </p>
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground">Mitra Laundry</p>
-                    <p className="font-medium">{selectedOrder.laundry_partners?.name}</p>
+                    <p className="text-sm text-muted-foreground">
+                      Mitra Laundry
+                    </p>
+                    <p className="font-medium">
+                      {selectedOrder.laundry_partners?.name}
+                    </p>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Kategori</p>
                     <p className="font-medium">
-                      {LAUNDRY_CATEGORIES[selectedOrder.category as keyof typeof LAUNDRY_CATEGORIES]?.label}
+                      {
+                        LAUNDRY_CATEGORIES[
+                          selectedOrder.category as keyof typeof LAUNDRY_CATEGORIES
+                        ]?.label
+                      }
                     </p>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Jumlah</p>
                     <p className="font-medium">
-                      {selectedOrder.category === 'kiloan'
+                      {selectedOrder.category === "kiloan"
                         ? `${selectedOrder.weight_kg} kg`
                         : `${selectedOrder.item_count} pcs`}
                     </p>
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground">Harga Satuan</p>
-                    <p className="font-medium">{formatCurrency(selectedOrder.price_per_unit)}</p>
+                    <p className="text-sm text-muted-foreground">
+                      Harga Satuan
+                    </p>
+                    <p className="font-medium">
+                      {formatCurrency(selectedOrder.price_per_unit)}
+                    </p>
                   </div>
                 </div>
 
                 <div className="border-t pt-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <p className="text-sm text-muted-foreground">Total Harga</p>
-                      <p className="text-xl font-bold text-primary">{formatCurrency(selectedOrder.total_price)}</p>
+                      <p className="text-sm text-muted-foreground">
+                        Total Harga
+                      </p>
+                      <p className="text-xl font-bold text-primary">
+                        {formatCurrency(selectedOrder.total_price)}
+                      </p>
                     </div>
                     <div>
                       <p className="text-sm text-muted-foreground">Status</p>
@@ -527,17 +601,21 @@ export default function Orders() {
                   </div>
                 </div>
 
-                {(userRole === 'admin') && (
+                {userRole === "admin" && (
                   <div className="border-t pt-4">
                     <p className="text-sm font-medium mb-2">Bagi Hasil</p>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="p-3 rounded-lg bg-muted/50">
                         <p className="text-sm text-muted-foreground">Yayasan</p>
-                        <p className="font-bold">{formatCurrency(selectedOrder.yayasan_share)}</p>
+                        <p className="font-bold">
+                          {formatCurrency(selectedOrder.yayasan_share)}
+                        </p>
                       </div>
                       <div className="p-3 rounded-lg bg-muted/50">
                         <p className="text-sm text-muted-foreground">Vendor</p>
-                        <p className="font-bold">{formatCurrency(selectedOrder.vendor_share)}</p>
+                        <p className="font-bold">
+                          {formatCurrency(selectedOrder.vendor_share)}
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -545,8 +623,12 @@ export default function Orders() {
 
                 {selectedOrder.rejection_reason && (
                   <div className="border-t pt-4">
-                    <p className="text-sm text-muted-foreground">Alasan Penolakan</p>
-                    <p className="text-destructive font-medium">{selectedOrder.rejection_reason}</p>
+                    <p className="text-sm text-muted-foreground">
+                      Alasan Penolakan
+                    </p>
+                    <p className="text-destructive font-medium">
+                      {selectedOrder.rejection_reason}
+                    </p>
                   </div>
                 )}
 
@@ -593,7 +675,9 @@ export default function Orders() {
                   onClick={handleReject}
                   disabled={processing || !rejectionReason.trim()}
                 >
-                  {processing && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  {processing && (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  )}
                   Tolak Order
                 </Button>
               </div>
