@@ -1,8 +1,8 @@
-import { ReactNode, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { useAuth } from '@/hooks/useAuth';
-import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
+import { ReactNode, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
+import { useAuth } from "@/hooks/useAuth";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
   Users,
@@ -18,8 +18,9 @@ import {
   FileText,
   Package,
   Wallet,
-} from 'lucide-react';
-import { USER_ROLES, type UserRole } from '@/lib/constants';
+  Upload,
+} from "lucide-react";
+import { USER_ROLES, type UserRole } from "@/lib/constants";
 
 interface NavItem {
   label: string;
@@ -30,70 +31,76 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   {
-    label: 'Dashboard',
-    href: '/dashboard',
+    label: "Dashboard",
+    href: "/dashboard",
     icon: <LayoutDashboard className="h-5 w-5" />,
-    roles: ['admin', 'parent', 'staff', 'partner', 'cashier'],
+    roles: ["admin", "parent", "staff", "partner", "cashier"],
   },
   {
-    label: 'Data Siswa',
-    href: '/students',
+    label: "Data Siswa",
+    href: "/students",
     icon: <GraduationCap className="h-5 w-5" />,
-    roles: ['admin', 'parent'],
+    roles: ["admin", "parent"],
   },
   {
-    label: 'Input Laundry',
-    href: '/orders/new',
+    label: "Input Laundry",
+    href: "/orders/new",
     icon: <Package className="h-5 w-5" />,
-    roles: ['staff'],
+    roles: ["staff"],
   },
   {
-    label: 'Daftar Order',
-    href: '/orders',
+    label: "Daftar Order",
+    href: "/orders",
     icon: <ClipboardList className="h-5 w-5" />,
-    roles: ['admin', 'staff', 'partner'],
+    roles: ["admin", "staff", "partner"],
   },
   {
-    label: 'Tagihan',
-    href: '/bills',
+    label: "Tagihan",
+    href: "/bills",
     icon: <Receipt className="h-5 w-5" />,
-    roles: ['parent'],
+    roles: ["parent"],
   },
   {
-    label: 'POS Kasir',
-    href: '/pos',
+    label: "POS Kasir",
+    href: "/pos",
     icon: <Wallet className="h-5 w-5" />,
-    roles: ['cashier'],
+    roles: ["cashier"],
   },
   {
-    label: 'Mitra Laundry',
-    href: '/partners',
+    label: "Mitra Laundry",
+    href: "/partners",
     icon: <Building2 className="h-5 w-5" />,
-    roles: ['admin'],
+    roles: ["admin"],
   },
   {
-    label: 'Pengguna',
-    href: '/users',
+    label: "Pengguna",
+    href: "/users",
     icon: <Users className="h-5 w-5" />,
-    roles: ['admin'],
+    roles: ["admin"],
   },
   {
-    label: 'Laporan',
-    href: '/reports',
+    label: "Laporan",
+    href: "/reports",
     icon: <FileText className="h-5 w-5" />,
-    roles: ['admin'],
+    roles: ["admin"],
   },
   {
-    label: 'Laporan Pembayaran',
-    href: '/cashier-reports',
+    label: "Laporan Pembayaran",
+    href: "/cashier-reports",
     icon: <FileText className="h-5 w-5" />,
-    roles: ['cashier'],
+    roles: ["cashier"],
   },
   {
-    label: 'Pengaturan',
-    href: '/settings',
+    label: "Migrasi Data",
+    href: "/data-migration",
+    icon: <Upload className="h-5 w-5" />,
+    roles: ["admin"],
+  },
+  {
+    label: "Pengaturan",
+    href: "/settings",
     icon: <Settings className="h-5 w-5" />,
-    roles: ['admin'],
+    roles: ["admin"],
   },
 ];
 
@@ -107,7 +114,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const filteredNavItems = navItems.filter(
-    (item) => userRole && item.roles.includes(userRole)
+    (item) => userRole && item.roles.includes(userRole),
   );
 
   const roleInfo = userRole ? USER_ROLES[userRole] : null;
@@ -142,8 +149,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       {/* Sidebar */}
       <aside
         className={cn(
-          'fixed top-0 left-0 z-50 h-full w-72 bg-sidebar transform transition-transform duration-200 ease-in-out lg:translate-x-0',
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+          "fixed top-0 left-0 z-50 h-full w-72 bg-sidebar transform transition-transform duration-200 ease-in-out lg:translate-x-0",
+          sidebarOpen ? "translate-x-0" : "-translate-x-full",
         )}
       >
         <div className="flex flex-col h-full">
@@ -154,8 +161,12 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                 <span className="text-xl">🧺</span>
               </div>
               <div>
-                <h1 className="font-bold text-sidebar-foreground">SchoolWash</h1>
-                <p className="text-xs text-sidebar-foreground/60">Laundry Sekolah</p>
+                <h1 className="font-bold text-sidebar-foreground">
+                  SchoolWash
+                </h1>
+                <p className="text-xs text-sidebar-foreground/60">
+                  Laundry Sekolah
+                </p>
               </div>
             </div>
             <button
@@ -170,14 +181,16 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           <div className="p-4 border-b border-sidebar-border">
             <div className="flex items-center gap-3 p-3 rounded-xl bg-sidebar-accent">
               <div className="w-10 h-10 rounded-full bg-sidebar-primary flex items-center justify-center text-sidebar-primary-foreground font-semibold">
-                {profile?.full_name?.charAt(0) || 'U'}
+                {profile?.full_name?.charAt(0) || "U"}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-sidebar-foreground truncate">
-                  {profile?.full_name || 'Pengguna'}
+                  {profile?.full_name || "Pengguna"}
                 </p>
                 {roleInfo && (
-                  <p className="text-xs text-sidebar-foreground/60">{roleInfo.label}</p>
+                  <p className="text-xs text-sidebar-foreground/60">
+                    {roleInfo.label}
+                  </p>
                 )}
               </div>
             </div>
@@ -186,8 +199,10 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           {/* Navigation */}
           <nav className="flex-1 overflow-y-auto p-4 space-y-1">
             {filteredNavItems.map((item) => {
-              const isActive = location.pathname === item.href ||
-                (item.href !== '/dashboard' && location.pathname.startsWith(item.href));
+              const isActive =
+                location.pathname === item.href ||
+                (item.href !== "/dashboard" &&
+                  location.pathname.startsWith(item.href));
 
               return (
                 <Link
@@ -195,10 +210,10 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                   to={item.href}
                   onClick={() => setSidebarOpen(false)}
                   className={cn(
-                    'flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200',
+                    "flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200",
                     isActive
-                      ? 'bg-sidebar-primary text-sidebar-primary-foreground'
-                      : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'
+                      ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground",
                   )}
                 >
                   {item.icon}
@@ -225,9 +240,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
       {/* Main content */}
       <main className="lg:pl-72 pt-16 lg:pt-0 min-h-screen">
-        <div className="p-4 lg:p-8">
-          {children}
-        </div>
+        <div className="p-4 lg:p-8">{children}</div>
       </main>
     </div>
   );

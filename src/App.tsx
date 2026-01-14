@@ -15,12 +15,19 @@ import Reports from "./pages/Reports";
 import CashierReports from "./pages/CashierReports";
 import CashierPOS from "./pages/CashierPOS";
 import Settings from "./pages/Settings";
+import DataMigration from "./pages/DataMigration";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 
 const queryClient = new QueryClient();
 
-function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles?: string[] }) {
+function ProtectedRoute({
+  children,
+  allowedRoles,
+}: {
+  children: React.ReactNode;
+  allowedRoles?: string[];
+}) {
   const { user, userRole, loading } = useAuth();
 
   if (loading) {
@@ -57,7 +64,7 @@ function AppRoutes() {
       <Route
         path="/students"
         element={
-          <ProtectedRoute allowedRoles={['admin', 'parent']}>
+          <ProtectedRoute allowedRoles={["admin", "parent"]}>
             <Students />
           </ProtectedRoute>
         }
@@ -65,7 +72,7 @@ function AppRoutes() {
       <Route
         path="/orders"
         element={
-          <ProtectedRoute allowedRoles={['admin', 'staff', 'partner']}>
+          <ProtectedRoute allowedRoles={["admin", "staff", "partner"]}>
             <Orders />
           </ProtectedRoute>
         }
@@ -73,7 +80,7 @@ function AppRoutes() {
       <Route
         path="/orders/new"
         element={
-          <ProtectedRoute allowedRoles={['staff']}>
+          <ProtectedRoute allowedRoles={["staff"]}>
             <NewOrder />
           </ProtectedRoute>
         }
@@ -81,7 +88,7 @@ function AppRoutes() {
       <Route
         path="/bills"
         element={
-          <ProtectedRoute allowedRoles={['parent']}>
+          <ProtectedRoute allowedRoles={["parent"]}>
             <Bills />
           </ProtectedRoute>
         }
@@ -89,7 +96,7 @@ function AppRoutes() {
       <Route
         path="/partners"
         element={
-          <ProtectedRoute allowedRoles={['admin']}>
+          <ProtectedRoute allowedRoles={["admin"]}>
             <Partners />
           </ProtectedRoute>
         }
@@ -97,7 +104,7 @@ function AppRoutes() {
       <Route
         path="/reports"
         element={
-          <ProtectedRoute allowedRoles={['admin']}>
+          <ProtectedRoute allowedRoles={["admin"]}>
             <Reports />
           </ProtectedRoute>
         }
@@ -105,7 +112,7 @@ function AppRoutes() {
       <Route
         path="/pos"
         element={
-          <ProtectedRoute allowedRoles={['cashier']}>
+          <ProtectedRoute allowedRoles={["cashier"]}>
             <CashierPOS />
           </ProtectedRoute>
         }
@@ -113,7 +120,7 @@ function AppRoutes() {
       <Route
         path="/cashier-reports"
         element={
-          <ProtectedRoute allowedRoles={['cashier']}>
+          <ProtectedRoute allowedRoles={["cashier"]}>
             <CashierReports />
           </ProtectedRoute>
         }
@@ -121,8 +128,16 @@ function AppRoutes() {
       <Route
         path="/settings"
         element={
-          <ProtectedRoute allowedRoles={['admin']}>
+          <ProtectedRoute allowedRoles={["admin"]}>
             <Settings />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/data-migration"
+        element={
+          <ProtectedRoute allowedRoles={["admin"]}>
+            <DataMigration />
           </ProtectedRoute>
         }
       />

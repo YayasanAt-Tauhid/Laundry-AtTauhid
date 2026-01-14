@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
-import { useAuth } from '@/hooks/useAuth';
-import { DashboardLayout } from '@/components/layout/DashboardLayout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { useEffect, useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
+import { DashboardLayout } from "@/components/layout/DashboardLayout";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -12,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '@/components/ui/dialog';
+} from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,10 +22,20 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { supabase } from '@/integrations/supabase/client';
-import { useToast } from '@/hooks/use-toast';
-import { Plus, Edit, Trash2, GraduationCap, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+} from "@/components/ui/alert-dialog";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
+import {
+  Plus,
+  Edit,
+  Trash2,
+  GraduationCap,
+  Loader2,
+  ChevronLeft,
+  ChevronRight,
+  Upload,
+} from "lucide-react";
+import { ImportData } from "@/components/import/ImportData";
 
 const PAGE_SIZE = 20;
 
@@ -47,13 +57,14 @@ export default function Students() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [formData, setFormData] = useState({
-    name: '',
-    class: '',
-    nis: '',
+    name: "",
+    class: "",
+    nis: "",
   });
   const [saving, setSaving] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
 
   useEffect(() => {
     fetchStudents();
@@ -66,26 +77,25 @@ export default function Students() {
       const to = from + PAGE_SIZE - 1;
 
       const { data, error, count } = await supabase
-        .from('students')
-        .select('*', { count: 'exact' })
-        .order('name')
+        .from("students")
+        .select("*", { count: "exact" })
+        .order("name")
         .range(from, to);
 
       if (error) throw error;
       setStudents(data || []);
       setTotalCount(count || 0);
     } catch (error) {
-      console.error('Error fetching students:', error);
+      console.error("Error fetching students:", error);
       toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Gagal memuat data siswa',
+        variant: "destructive",
+        title: "Error",
+        description: "Gagal memuat data siswa",
       });
     } finally {
       setLoading(false);
     }
   };
-
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -97,49 +107,49 @@ export default function Students() {
       if (selectedStudent) {
         // Update existing student
         const { error } = await supabase
-          .from('students')
+          .from("students")
           .update({
             name: formData.name,
             class: formData.class,
             nis: formData.nis || null,
           })
-          .eq('id', selectedStudent.id);
+          .eq("id", selectedStudent.id);
 
         if (error) throw error;
 
         toast({
-          title: 'Berhasil',
-          description: 'Data siswa berhasil diperbarui',
+          title: "Berhasil",
+          description: "Data siswa berhasil diperbarui",
         });
       } else {
         // Create new student
-        const { error } = await supabase
-          .from('students')
-          .insert({
-            parent_id: user.id,
-            name: formData.name,
-            class: formData.class,
-            nis: formData.nis || null,
-          });
+        const { error } = await supabase.from("students").insert({
+          parent_id: user.id,
+          name: formData.name,
+          class: formData.class,
+          nis: formData.nis || null,
+        });
 
         if (error) throw error;
 
         toast({
-          title: 'Berhasil',
-          description: 'Siswa berhasil ditambahkan',
+          title: "Berhasil",
+          description: "Siswa berhasil ditambahkan",
         });
       }
 
       setDialogOpen(false);
       setSelectedStudent(null);
-      setFormData({ name: '', class: '', nis: '' });
+      setFormData({ name: "", class: "", nis: "" });
       fetchStudents();
-    } catch (error: any) {
-      console.error('Error saving student:', error);
+    } catch (error: unknown) {
+      console.error("Error saving student:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : "Gagal menyimpan data siswa";
       toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: error.message || 'Gagal menyimpan data siswa',
+        variant: "destructive",
+        title: "Error",
+        description: errorMessage,
       });
     } finally {
       setSaving(false);
@@ -151,7 +161,7 @@ export default function Students() {
     setFormData({
       name: student.name,
       class: student.class,
-      nis: student.nis || '',
+      nis: student.nis || "",
     });
     setDialogOpen(true);
   };
@@ -161,26 +171,28 @@ export default function Students() {
 
     try {
       const { error } = await supabase
-        .from('students')
+        .from("students")
         .delete()
-        .eq('id', selectedStudent.id);
+        .eq("id", selectedStudent.id);
 
       if (error) throw error;
 
       toast({
-        title: 'Berhasil',
-        description: 'Siswa berhasil dihapus',
+        title: "Berhasil",
+        description: "Siswa berhasil dihapus",
       });
 
       setDeleteDialogOpen(false);
       setSelectedStudent(null);
       fetchStudents();
-    } catch (error: any) {
-      console.error('Error deleting student:', error);
+    } catch (error: unknown) {
+      console.error("Error deleting student:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : "Gagal menghapus siswa";
       toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: error.message || 'Gagal menghapus siswa',
+        variant: "destructive",
+        title: "Error",
+        description: errorMessage,
       });
     }
   };
@@ -192,7 +204,7 @@ export default function Students() {
 
   const openAddDialog = () => {
     setSelectedStudent(null);
-    setFormData({ name: '', class: '', nis: '' });
+    setFormData({ name: "", class: "", nis: "" });
     setDialogOpen(true);
   };
 
@@ -208,71 +220,92 @@ export default function Students() {
             </p>
           </div>
 
-          {userRole === 'parent' && (
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-              <DialogTrigger asChild>
-                <Button onClick={openAddDialog}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Tambah Siswa
+          {(userRole === "parent" ||
+            userRole === "admin" ||
+            userRole === "staff") && (
+            <div className="flex gap-2">
+              {userRole === "admin" && (
+                <Button
+                  variant="outline"
+                  onClick={() => setImportDialogOpen(true)}
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  Import Data
                 </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>
-                    {selectedStudent ? 'Edit Siswa' : 'Tambah Siswa Baru'}
-                  </DialogTitle>
-                  <DialogDescription>
-                    {selectedStudent
-                      ? 'Perbarui informasi siswa'
-                      : 'Masukkan data siswa yang akan didaftarkan'}
-                  </DialogDescription>
-                </DialogHeader>
-                <form onSubmit={handleSubmit} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="name">Nama Siswa</Label>
-                    <Input
-                      id="name"
-                      value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      placeholder="Nama lengkap siswa"
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="class">Kelas</Label>
-                    <Input
-                      id="class"
-                      value={formData.class}
-                      onChange={(e) => setFormData({ ...formData, class: e.target.value })}
-                      placeholder="Contoh: 7A, X IPA 1, 5B"
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="nis">NIS (Opsional)</Label>
-                    <Input
-                      id="nis"
-                      value={formData.nis}
-                      onChange={(e) => setFormData({ ...formData, nis: e.target.value })}
-                      placeholder="Nomor Induk Siswa"
-                    />
-                  </div>
-                  <div className="flex gap-3 justify-end">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setDialogOpen(false)}
-                    >
-                      Batal
-                    </Button>
-                    <Button type="submit" disabled={saving}>
-                      {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                      {selectedStudent ? 'Simpan Perubahan' : 'Tambah Siswa'}
-                    </Button>
-                  </div>
-                </form>
-              </DialogContent>
-            </Dialog>
+              )}
+              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button onClick={openAddDialog}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Tambah Siswa
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>
+                      {selectedStudent ? "Edit Siswa" : "Tambah Siswa Baru"}
+                    </DialogTitle>
+                    <DialogDescription>
+                      {selectedStudent
+                        ? "Perbarui informasi siswa"
+                        : "Masukkan data siswa yang akan didaftarkan"}
+                    </DialogDescription>
+                  </DialogHeader>
+                  <form onSubmit={handleSubmit} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="name">Nama Siswa</Label>
+                      <Input
+                        id="name"
+                        value={formData.name}
+                        onChange={(e) =>
+                          setFormData({ ...formData, name: e.target.value })
+                        }
+                        placeholder="Nama lengkap siswa"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="class">Kelas</Label>
+                      <Input
+                        id="class"
+                        value={formData.class}
+                        onChange={(e) =>
+                          setFormData({ ...formData, class: e.target.value })
+                        }
+                        placeholder="Contoh: 7A, X IPA 1, 5B"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="nis">NIS (Opsional)</Label>
+                      <Input
+                        id="nis"
+                        value={formData.nis}
+                        onChange={(e) =>
+                          setFormData({ ...formData, nis: e.target.value })
+                        }
+                        placeholder="Nomor Induk Siswa"
+                      />
+                    </div>
+                    <div className="flex gap-3 justify-end">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setDialogOpen(false)}
+                      >
+                        Batal
+                      </Button>
+                      <Button type="submit" disabled={saving}>
+                        {saving && (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        )}
+                        {selectedStudent ? "Simpan Perubahan" : "Tambah Siswa"}
+                      </Button>
+                    </div>
+                  </form>
+                </DialogContent>
+              </Dialog>
+            </div>
           )}
         </div>
 
@@ -291,7 +324,7 @@ export default function Students() {
               <p className="text-muted-foreground text-center mb-4">
                 Tambahkan data siswa untuk mulai menggunakan layanan laundry
               </p>
-              {userRole === 'parent' && (
+              {userRole === "parent" && (
                 <Button onClick={openAddDialog}>
                   <Plus className="h-4 w-4 mr-2" />
                   Tambah Siswa Pertama
@@ -310,13 +343,15 @@ export default function Students() {
                         <GraduationCap className="h-6 w-6" />
                       </div>
                       <div>
-                        <CardTitle className="text-base">{student.name}</CardTitle>
+                        <CardTitle className="text-base">
+                          {student.name}
+                        </CardTitle>
                         <p className="text-sm text-muted-foreground">
                           Kelas {student.class}
                         </p>
                       </div>
                     </div>
-                    {userRole === 'parent' && (
+                    {userRole === "parent" && (
                       <div className="flex gap-1">
                         <Button
                           variant="ghost"
@@ -347,8 +382,10 @@ export default function Students() {
                     )}
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Status</span>
-                      <span className={`font-medium ${student.is_active ? 'text-success' : 'text-muted-foreground'}`}>
-                        {student.is_active ? 'Aktif' : 'Tidak Aktif'}
+                      <span
+                        className={`font-medium ${student.is_active ? "text-success" : "text-muted-foreground"}`}
+                      >
+                        {student.is_active ? "Aktif" : "Tidak Aktif"}
                       </span>
                     </div>
                   </div>
@@ -362,7 +399,9 @@ export default function Students() {
         {!loading && totalCount > PAGE_SIZE && (
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 border rounded-lg bg-card">
             <div className="text-sm text-muted-foreground">
-              Menampilkan {currentPage * PAGE_SIZE + 1} - {Math.min((currentPage + 1) * PAGE_SIZE, totalCount)} dari {totalCount} siswa
+              Menampilkan {currentPage * PAGE_SIZE + 1} -{" "}
+              {Math.min((currentPage + 1) * PAGE_SIZE, totalCount)} dari{" "}
+              {totalCount} siswa
             </div>
             <div className="flex items-center gap-2">
               <Button
@@ -375,13 +414,16 @@ export default function Students() {
                 Sebelumnya
               </Button>
               <div className="flex items-center gap-1 px-3 py-1 rounded-md bg-muted text-sm font-medium">
-                Halaman {currentPage + 1} dari {Math.ceil(totalCount / PAGE_SIZE)}
+                Halaman {currentPage + 1} dari{" "}
+                {Math.ceil(totalCount / PAGE_SIZE)}
               </div>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setCurrentPage((p) => p + 1)}
-                disabled={(currentPage + 1) * PAGE_SIZE >= totalCount || loading}
+                disabled={
+                  (currentPage + 1) * PAGE_SIZE >= totalCount || loading
+                }
               >
                 Selanjutnya
                 <ChevronRight className="h-4 w-4 ml-1" />
@@ -396,7 +438,8 @@ export default function Students() {
             <AlertDialogHeader>
               <AlertDialogTitle>Hapus Siswa?</AlertDialogTitle>
               <AlertDialogDescription>
-                Apakah Anda yakin ingin menghapus {selectedStudent?.name}? Tindakan ini tidak dapat dibatalkan.
+                Apakah Anda yakin ingin menghapus {selectedStudent?.name}?
+                Tindakan ini tidak dapat dibatalkan.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -410,6 +453,15 @@ export default function Students() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* Import Dialog */}
+        <ImportData
+          open={importDialogOpen}
+          onOpenChange={setImportDialogOpen}
+          onImportComplete={() => {
+            fetchStudents();
+          }}
+        />
       </div>
     </DashboardLayout>
   );

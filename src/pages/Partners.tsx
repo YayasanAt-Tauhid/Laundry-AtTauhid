@@ -1,19 +1,20 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useAuth } from '@/hooks/useAuth';
-import { DashboardLayout } from '@/components/layout/DashboardLayout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Switch } from '@/components/ui/switch';
+import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
+import { DashboardLayout } from "@/components/layout/DashboardLayout";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { ImportData } from "@/components/import/ImportData";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -21,7 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '@/components/ui/dialog';
+} from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,10 +32,19 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { supabase } from '@/integrations/supabase/client';
-import { useToast } from '@/hooks/use-toast';
-import { Plus, Edit, Trash2, Building2, Loader2, Phone, MapPin } from 'lucide-react';
+} from "@/components/ui/alert-dialog";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
+import {
+  Plus,
+  Edit,
+  Trash2,
+  Building2,
+  Loader2,
+  Phone,
+  MapPin,
+  Upload,
+} from "lucide-react";
 
 interface Partner {
   id: string;
@@ -69,37 +79,38 @@ export default function Partners() {
   }, [userOptions]);
 
   const [formData, setFormData] = useState({
-    name: '',
-    phone: '',
-    address: '',
+    name: "",
+    phone: "",
+    address: "",
     is_active: true,
-    user_id: '', // empty = not assigned
+    user_id: "", // empty = not assigned
   });
   const [saving, setSaving] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
 
   useEffect(() => {
     fetchPartners();
   }, []);
 
   useEffect(() => {
-    if (userRole === 'admin') fetchUserOptions();
+    if (userRole === "admin") fetchUserOptions();
   }, [userRole]);
 
   const fetchPartners = async () => {
     try {
       const { data, error } = await supabase
-        .from('laundry_partners')
-        .select('*')
-        .order('name');
+        .from("laundry_partners")
+        .select("*")
+        .order("name");
 
       if (error) throw error;
       setPartners(data || []);
     } catch (error) {
-      console.error('Error fetching partners:', error);
+      console.error("Error fetching partners:", error);
       toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Gagal memuat data mitra',
+        variant: "destructive",
+        title: "Error",
+        description: "Gagal memuat data mitra",
       });
     } finally {
       setLoading(false);
@@ -109,20 +120,28 @@ export default function Partners() {
   const fetchUserOptions = async () => {
     try {
       const { data, error } = await supabase
-        .from('profiles')
-        .select('user_id, full_name, email')
-        .order('full_name');
+        .from("profiles")
+        .select("user_id, full_name, email")
+        .order("full_name");
 
       if (error) throw error;
-      setUserOptions((data || []).filter((u) => !!u.user_id) as PartnerUserOption[]);
+      setUserOptions(
+        (data || []).filter((u) => !!u.user_id) as PartnerUserOption[],
+      );
     } catch (error) {
-      console.error('Error fetching users:', error);
+      console.error("Error fetching users:", error);
     }
   };
 
   const openAddDialog = () => {
     setSelectedPartner(null);
-    setFormData({ name: '', phone: '', address: '', is_active: true, user_id: '' });
+    setFormData({
+      name: "",
+      phone: "",
+      address: "",
+      is_active: true,
+      user_id: "",
+    });
     setDialogOpen(true);
   };
 
@@ -130,10 +149,10 @@ export default function Partners() {
     setSelectedPartner(partner);
     setFormData({
       name: partner.name,
-      phone: partner.phone || '',
-      address: partner.address || '',
+      phone: partner.phone || "",
+      address: partner.address || "",
       is_active: partner.is_active,
-      user_id: partner.user_id || '',
+      user_id: partner.user_id || "",
     });
     setDialogOpen(true);
   };
@@ -148,26 +167,28 @@ export default function Partners() {
 
     try {
       const { error } = await supabase
-        .from('laundry_partners')
+        .from("laundry_partners")
         .delete()
-        .eq('id', selectedPartner.id);
+        .eq("id", selectedPartner.id);
 
       if (error) throw error;
 
       toast({
-        title: 'Berhasil',
-        description: 'Mitra berhasil dihapus',
+        title: "Berhasil",
+        description: "Mitra berhasil dihapus",
       });
 
       setDeleteDialogOpen(false);
       setSelectedPartner(null);
       fetchPartners();
-    } catch (error: any) {
-      console.error('Error deleting partner:', error);
+    } catch (error: unknown) {
+      console.error("Error deleting partner:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : "Gagal menghapus mitra";
       toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: error.message || 'Gagal menghapus mitra',
+        variant: "destructive",
+        title: "Error",
+        description: errorMessage,
       });
     }
   };
@@ -176,12 +197,14 @@ export default function Partners() {
     e.preventDefault();
     setSaving(true);
 
-    const assignedUserId = formData.user_id?.trim() ? formData.user_id.trim() : null;
+    const assignedUserId = formData.user_id?.trim()
+      ? formData.user_id.trim()
+      : null;
 
     try {
       if (selectedPartner) {
         const { error } = await supabase
-          .from('laundry_partners')
+          .from("laundry_partners")
           .update({
             name: formData.name,
             phone: formData.phone || null,
@@ -189,50 +212,59 @@ export default function Partners() {
             is_active: formData.is_active,
             user_id: assignedUserId,
           })
-          .eq('id', selectedPartner.id);
+          .eq("id", selectedPartner.id);
 
         if (error) throw error;
 
         toast({
-          title: 'Berhasil',
-          description: 'Data mitra berhasil diperbarui',
+          title: "Berhasil",
+          description: "Data mitra berhasil diperbarui",
         });
       } else {
-        const { error } = await supabase
-          .from('laundry_partners')
-          .insert({
-            name: formData.name,
-            phone: formData.phone || null,
-            address: formData.address || null,
-            is_active: formData.is_active,
-            user_id: assignedUserId,
-          });
+        const { error } = await supabase.from("laundry_partners").insert({
+          name: formData.name,
+          phone: formData.phone || null,
+          address: formData.address || null,
+          is_active: formData.is_active,
+          user_id: assignedUserId,
+        });
 
         if (error) throw error;
 
         toast({
-          title: 'Berhasil',
-          description: 'Mitra laundry berhasil ditambahkan',
+          title: "Berhasil",
+          description: "Mitra laundry berhasil ditambahkan",
         });
       }
 
       // Ensure assigned user can actually login as partner by adding partner role.
       if (assignedUserId) {
         await supabase
-          .from('user_roles')
-          .upsert({ user_id: assignedUserId, role: 'partner' }, { onConflict: 'user_id,role' });
+          .from("user_roles")
+          .upsert(
+            { user_id: assignedUserId, role: "partner" },
+            { onConflict: "user_id,role" },
+          );
       }
 
       setDialogOpen(false);
       setSelectedPartner(null);
-      setFormData({ name: '', phone: '', address: '', is_active: true, user_id: '' });
+      setFormData({
+        name: "",
+        phone: "",
+        address: "",
+        is_active: true,
+        user_id: "",
+      });
       fetchPartners();
-    } catch (error: any) {
-      console.error('Error saving partner:', error);
+    } catch (error: unknown) {
+      console.error("Error saving partner:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : "Gagal menyimpan data mitra";
       toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: error.message || 'Gagal menyimpan data mitra',
+        variant: "destructive",
+        title: "Error",
+        description: errorMessage,
       });
     } finally {
       setSaving(false);
@@ -244,103 +276,144 @@ export default function Partners() {
       <div className="space-y-6 animate-fade-in">
         <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Mitra Laundry</h1>
-            <p className="text-muted-foreground mt-1">Kelola data mitra laundry & tetapkan akun login mitra</p>
+            <h1 className="text-2xl font-bold text-foreground">
+              Mitra Laundry
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              Kelola data mitra laundry & tetapkan akun login mitra
+            </p>
           </div>
 
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button onClick={openAddDialog}>
-                <Plus className="h-4 w-4 mr-2" />
-                Tambah Mitra
+          <div className="flex gap-2">
+            {userRole === "admin" && (
+              <Button
+                variant="outline"
+                onClick={() => setImportDialogOpen(true)}
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                Import Data
               </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>{selectedPartner ? 'Edit Mitra' : 'Tambah Mitra Baru'}</DialogTitle>
-                <DialogDescription>
-                  {selectedPartner ? 'Perbarui informasi mitra laundry' : 'Masukkan data mitra laundry baru'}
-                </DialogDescription>
-              </DialogHeader>
+            )}
+            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+              <DialogTrigger asChild>
+                <Button onClick={openAddDialog}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Tambah Mitra
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>
+                    {selectedPartner ? "Edit Mitra" : "Tambah Mitra Baru"}
+                  </DialogTitle>
+                  <DialogDescription>
+                    {selectedPartner
+                      ? "Perbarui informasi mitra laundry"
+                      : "Masukkan data mitra laundry baru"}
+                  </DialogDescription>
+                </DialogHeader>
 
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Nama Mitra *</Label>
-                  <Input
-                    id="name"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    placeholder="Nama mitra laundry"
-                    required
-                  />
-                </div>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="name">Nama Mitra *</Label>
+                    <Input
+                      id="name"
+                      value={formData.name}
+                      onChange={(e) =>
+                        setFormData({ ...formData, name: e.target.value })
+                      }
+                      placeholder="Nama mitra laundry"
+                      required
+                    />
+                  </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="partner_user">Akun Mitra (opsional)</Label>
-                  <Select
-                    value={formData.user_id || '__none__'}
-                    onValueChange={(value) => setFormData({ ...formData, user_id: value === '__none__' ? '' : value })}
-                  >
-                    <SelectTrigger id="partner_user">
-                      <SelectValue placeholder="Pilih akun untuk login mitra (opsional)" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">Tidak ditetapkan</SelectItem>
-                      {userOptions.map((u) => (
-                        <SelectItem key={u.user_id} value={u.user_id}>
-                          {u.full_name || u.email || u.user_id}
+                  <div className="space-y-2">
+                    <Label htmlFor="partner_user">Akun Mitra (opsional)</Label>
+                    <Select
+                      value={formData.user_id || "__none__"}
+                      onValueChange={(value) =>
+                        setFormData({
+                          ...formData,
+                          user_id: value === "__none__" ? "" : value,
+                        })
+                      }
+                    >
+                      <SelectTrigger id="partner_user">
+                        <SelectValue placeholder="Pilih akun untuk login mitra (opsional)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">
+                          Tidak ditetapkan
                         </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Jika dipilih, user tersebut otomatis diberi role <span className="font-medium">Mitra</span>.
-                  </p>
-                </div>
+                        {userOptions.map((u) => (
+                          <SelectItem key={u.user_id} value={u.user_id}>
+                            {u.full_name || u.email || u.user_id}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Jika dipilih, user tersebut otomatis diberi role{" "}
+                      <span className="font-medium">Mitra</span>.
+                    </p>
+                  </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="phone">Nomor Telepon</Label>
-                  <Input
-                    id="phone"
-                    type="tel"
-                    value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                    placeholder="08xxxxxxxxxx"
-                  />
-                </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="phone">Nomor Telepon</Label>
+                    <Input
+                      id="phone"
+                      type="tel"
+                      value={formData.phone}
+                      onChange={(e) =>
+                        setFormData({ ...formData, phone: e.target.value })
+                      }
+                      placeholder="08xxxxxxxxxx"
+                    />
+                  </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="address">Alamat</Label>
-                  <Textarea
-                    id="address"
-                    value={formData.address}
-                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                    placeholder="Alamat lengkap mitra"
-                    rows={3}
-                  />
-                </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="address">Alamat</Label>
+                    <Textarea
+                      id="address"
+                      value={formData.address}
+                      onChange={(e) =>
+                        setFormData({ ...formData, address: e.target.value })
+                      }
+                      placeholder="Alamat lengkap mitra"
+                      rows={3}
+                    />
+                  </div>
 
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="active">Status Aktif</Label>
-                  <Switch
-                    id="active"
-                    checked={formData.is_active}
-                    onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
-                  />
-                </div>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="active">Status Aktif</Label>
+                    <Switch
+                      id="active"
+                      checked={formData.is_active}
+                      onCheckedChange={(checked) =>
+                        setFormData({ ...formData, is_active: checked })
+                      }
+                    />
+                  </div>
 
-                <div className="flex gap-3 justify-end">
-                  <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
-                    Batal
-                  </Button>
-                  <Button type="submit" disabled={saving}>
-                    {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                    {selectedPartner ? 'Simpan Perubahan' : 'Tambah Mitra'}
-                  </Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
+                  <div className="flex gap-3 justify-end">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setDialogOpen(false)}
+                    >
+                      Batal
+                    </Button>
+                    <Button type="submit" disabled={saving}>
+                      {saving && (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      )}
+                      {selectedPartner ? "Simpan Perubahan" : "Tambah Mitra"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
         </header>
 
         {loading ? (
@@ -351,7 +424,9 @@ export default function Partners() {
           <Card className="dashboard-card">
             <CardContent className="flex flex-col items-center justify-center py-12">
               <Building2 className="h-16 w-16 text-muted-foreground/30 mb-4" />
-              <h2 className="text-lg font-medium text-foreground mb-2">Belum ada mitra terdaftar</h2>
+              <h2 className="text-lg font-medium text-foreground mb-2">
+                Belum ada mitra terdaftar
+              </h2>
               <p className="text-muted-foreground text-center mb-4">
                 Tambahkan mitra laundry untuk mulai menerima order
               </p>
@@ -364,7 +439,9 @@ export default function Partners() {
         ) : (
           <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {partners.map((partner) => {
-              const linkedUser = partner.user_id ? userOptionsById.get(partner.user_id) : undefined;
+              const linkedUser = partner.user_id
+                ? userOptionsById.get(partner.user_id)
+                : undefined;
 
               return (
                 <Card key={partner.id} className="dashboard-card">
@@ -375,22 +452,31 @@ export default function Partners() {
                           <Building2 className="h-6 w-6" />
                         </div>
                         <div>
-                          <CardTitle className="text-base">{partner.name}</CardTitle>
+                          <CardTitle className="text-base">
+                            {partner.name}
+                          </CardTitle>
                           <span
-                            className={`text-xs font-medium ${partner.is_active ? 'text-success' : 'text-muted-foreground'}`}
+                            className={`text-xs font-medium ${partner.is_active ? "text-success" : "text-muted-foreground"}`}
                           >
-                            {partner.is_active ? 'Aktif' : 'Tidak Aktif'}
+                            {partner.is_active ? "Aktif" : "Tidak Aktif"}
                           </span>
                           {partner.user_id && (
                             <p className="text-xs text-muted-foreground mt-1">
-                              Akun: {linkedUser?.email || linkedUser?.full_name || partner.user_id}
+                              Akun:{" "}
+                              {linkedUser?.email ||
+                                linkedUser?.full_name ||
+                                partner.user_id}
                             </p>
                           )}
                         </div>
                       </div>
 
                       <div className="flex gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => handleEdit(partner)}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleEdit(partner)}
+                        >
                           <Edit className="h-4 w-4" />
                         </Button>
                         <Button
@@ -416,7 +502,9 @@ export default function Partners() {
                       {partner.address && (
                         <div className="flex items-start gap-2 text-muted-foreground">
                           <MapPin className="h-4 w-4 mt-0.5" />
-                          <span className="line-clamp-2">{partner.address}</span>
+                          <span className="line-clamp-2">
+                            {partner.address}
+                          </span>
                         </div>
                       )}
                     </div>
@@ -432,7 +520,8 @@ export default function Partners() {
             <AlertDialogHeader>
               <AlertDialogTitle>Hapus Mitra?</AlertDialogTitle>
               <AlertDialogDescription>
-                Apakah Anda yakin ingin menghapus {selectedPartner?.name}? Tindakan ini tidak dapat dibatalkan.
+                Apakah Anda yakin ingin menghapus {selectedPartner?.name}?
+                Tindakan ini tidak dapat dibatalkan.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -446,6 +535,15 @@ export default function Partners() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* Import Dialog */}
+        <ImportData
+          open={importDialogOpen}
+          onOpenChange={setImportDialogOpen}
+          onImportComplete={() => {
+            fetchPartners();
+          }}
+        />
       </div>
     </DashboardLayout>
   );
