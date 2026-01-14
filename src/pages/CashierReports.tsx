@@ -30,6 +30,8 @@ import {
   Printer,
   ChevronLeft,
   ChevronRight,
+  Wallet,
+  PiggyBank,
 } from "lucide-react";
 import { LAUNDRY_CATEGORIES } from "@/lib/constants";
 import {
@@ -79,6 +81,8 @@ interface SummaryData {
   cashAmount: number;
   transferTransactions: number;
   transferAmount: number;
+  wadiahUsedTotal: number;
+  wadiahDepositTotal: number;
   byCategory: Record<string, { count: number; amount: number }>;
   byClass: Record<string, { count: number; amount: number }>;
 }
@@ -97,6 +101,8 @@ export default function CashierReports() {
     cashAmount: 0,
     transferTransactions: 0,
     transferAmount: 0,
+    wadiahUsedTotal: 0,
+    wadiahDepositTotal: 0,
     byCategory: {},
     byClass: {},
   });
@@ -210,6 +216,7 @@ export default function CashierReports() {
                     total_price,
                     payment_method,
                     category,
+                    wadiah_used,
                     students!inner (class)
                 `,
         )
@@ -245,6 +252,8 @@ export default function CashierReports() {
           cashAmount: 0,
           transferTransactions: 0,
           transferAmount: 0,
+          wadiahUsedTotal: 0,
+          wadiahDepositTotal: 0,
           byCategory: {},
           byClass: {},
         };
@@ -259,6 +268,11 @@ export default function CashierReports() {
           } else {
             currentSummary.transferTransactions++;
             currentSummary.transferAmount += payment.total_price;
+          }
+
+          // Wadiah used tracking
+          if (payment.wadiah_used) {
+            currentSummary.wadiahUsedTotal += payment.wadiah_used;
           }
 
           // By category
@@ -277,6 +291,27 @@ export default function CashierReports() {
           currentSummary.byClass[cls].count++;
           currentSummary.byClass[cls].amount += payment.total_price;
         });
+
+        // 3. Fetch Wadiah Transactions for deposit total (change_deposit)
+        let wadiahQuery = supabase
+          .from("wadiah_transactions")
+          .select("amount, transaction_type, created_at")
+          .eq("transaction_type", "change_deposit");
+
+        if (period !== "all") {
+          wadiahQuery = wadiahQuery
+            .gte("created_at", startDate.toISOString())
+            .lt("created_at", endDate.toISOString());
+        }
+
+        const { data: wadiahData, error: wadiahError } = await wadiahQuery;
+
+        if (!wadiahError && wadiahData) {
+          currentSummary.wadiahDepositTotal = wadiahData.reduce(
+            (sum, tx) => sum + (tx.amount || 0),
+            0,
+          );
+        }
 
         setSummary(currentSummary);
       }
@@ -675,7 +710,51 @@ export default function CashierReports() {
               <h3>Pembayaran Tunai</h3>
               <p class="method-cash">${formatCurrency(summary.cashAmount)}</p>
             </div>
+            <div class="summary-card">
+              <h3>Transfer/QRIS</h3>
+              <p class="method-transfer">${formatCurrency(summary.transferAmount)}</p>
+            </div>
           </div>
+
+          ${
+            summary.wadiahDepositTotal > 0 || summary.wadiahUsedTotal > 0
+              ? `
+          <div style="margin: 20px 0; padding: 15px; border: 2px dashed #9333ea; border-radius: 8px; background: #faf5ff;">
+            <h3 style="margin: 0 0 15px; color: #9333ea;">📋 Ringkasan Setor Bank</h3>
+            <table style="width: 100%; border: none; margin: 0;">
+              <tr style="background: none;">
+                <td style="border: none; padding: 5px 0;">Uang Tunai Diterima</td>
+                <td style="border: none; padding: 5px 0; text-align: right; font-weight: bold; color: #16a34a;">${formatCurrency(summary.cashAmount)}</td>
+              </tr>
+              ${
+                summary.wadiahDepositTotal > 0
+                  ? `
+              <tr style="background: none;">
+                <td style="border: none; padding: 5px 0;">Titipan Wadiah Siswa (dikurangi)</td>
+                <td style="border: none; padding: 5px 0; text-align: right; font-weight: bold; color: #9333ea;">- ${formatCurrency(summary.wadiahDepositTotal)}</td>
+              </tr>
+              `
+                  : ""
+              }
+              <tr style="background: none; border-top: 2px solid #9333ea;">
+                <td style="border: none; padding: 10px 0 5px; font-weight: bold; font-size: 14px;">Setor ke Rekening Operasional</td>
+                <td style="border: none; padding: 10px 0 5px; text-align: right; font-weight: bold; font-size: 16px; color: #7c3aed;">${formatCurrency(summary.cashAmount - summary.wadiahDepositTotal)}</td>
+              </tr>
+              ${
+                summary.wadiahDepositTotal > 0
+                  ? `
+              <tr style="background: none;">
+                <td style="border: none; padding: 5px 0; font-weight: bold;">Setor ke Rekening Wadiah/Titipan</td>
+                <td style="border: none; padding: 5px 0; text-align: right; font-weight: bold; color: #9333ea;">${formatCurrency(summary.wadiahDepositTotal)}</td>
+              </tr>
+              `
+                  : ""
+              }
+            </table>
+          </div>
+          `
+              : ""
+          }
 
           <h3>Detail Transaksi ({totalCount} transaksi - Halaman ini)</h3>
           <table>
@@ -860,6 +939,187 @@ export default function CashierReports() {
                 </CardContent>
               </Card>
             </div>
+
+            {/* Wadiah Summary Cards */}
+            {(summary.wadiahUsedTotal > 0 ||
+              summary.wadiahDepositTotal > 0) && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Card className="dashboard-card bg-gradient-to-br from-amber-500/10 to-yellow-500/5 border-amber-500/20">
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">
+                          Wadiah Digunakan
+                        </p>
+                        <p className="text-2xl font-bold mt-1 text-amber-600">
+                          {formatCurrency(summary.wadiahUsedTotal)}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Saldo wadiah yang dipakai untuk bayar
+                        </p>
+                      </div>
+                      <div className="p-3 rounded-xl bg-amber-500/20 text-amber-600">
+                        <Wallet className="h-6 w-6" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="dashboard-card bg-gradient-to-br from-purple-500/10 to-pink-500/5 border-purple-500/20">
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">
+                          Kembalian ke Wadiah
+                        </p>
+                        <p className="text-2xl font-bold mt-1 text-purple-600">
+                          {formatCurrency(summary.wadiahDepositTotal)}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Untuk disetor ke bank (titipan siswa)
+                        </p>
+                      </div>
+                      <div className="p-3 rounded-xl bg-purple-500/20 text-purple-600">
+                        <PiggyBank className="h-6 w-6" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* Bank Deposit Summary - For Cashier to know how much to deposit */}
+            {summary.cashAmount > 0 && (
+              <Card className="dashboard-card border-2 border-dashed border-primary/30 bg-gradient-to-br from-primary/5 to-emerald-500/5">
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Banknote className="h-5 w-5 text-primary" />
+                    Ringkasan Setor Bank
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {/* Cash Received */}
+                    <div className="flex items-center justify-between p-3 rounded-lg bg-green-500/10">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-lg bg-green-500/20">
+                          <Banknote className="h-5 w-5 text-green-600" />
+                        </div>
+                        <div>
+                          <p className="font-medium">Uang Tunai Diterima</p>
+                          <p className="text-sm text-muted-foreground">
+                            {summary.cashTransactions} transaksi tunai
+                          </p>
+                        </div>
+                      </div>
+                      <p className="text-xl font-bold text-green-600">
+                        {formatCurrency(summary.cashAmount)}
+                      </p>
+                    </div>
+
+                    {/* Wadiah Deposit (to be set aside) */}
+                    {summary.wadiahDepositTotal > 0 && (
+                      <div className="flex items-center justify-between p-3 rounded-lg bg-purple-500/10">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 rounded-lg bg-purple-500/20">
+                            <PiggyBank className="h-5 w-5 text-purple-600" />
+                          </div>
+                          <div>
+                            <p className="font-medium">Titipan Wadiah Siswa</p>
+                            <p className="text-sm text-muted-foreground">
+                              Kembalian yang dititipkan (wajib disetor terpisah)
+                            </p>
+                          </div>
+                        </div>
+                        <p className="text-xl font-bold text-purple-600">
+                          - {formatCurrency(summary.wadiahDepositTotal)}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Wadiah Used (money received from wadiah balance) */}
+                    {summary.wadiahUsedTotal > 0 && (
+                      <div className="flex items-center justify-between p-3 rounded-lg bg-amber-500/10">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 rounded-lg bg-amber-500/20">
+                            <Wallet className="h-5 w-5 text-amber-600" />
+                          </div>
+                          <div>
+                            <p className="font-medium">
+                              Pembayaran dari Wadiah
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                              Saldo wadiah siswa yang digunakan untuk bayar
+                            </p>
+                          </div>
+                        </div>
+                        <p className="text-xl font-bold text-amber-600">
+                          {formatCurrency(summary.wadiahUsedTotal)}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Divider */}
+                    <div className="border-t-2 border-dashed border-primary/20 pt-4">
+                      {/* Net Cash to Deposit */}
+                      <div className="flex items-center justify-between p-4 rounded-lg bg-primary/10 border border-primary/20">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 rounded-lg bg-primary/20">
+                            <CreditCard className="h-5 w-5 text-primary" />
+                          </div>
+                          <div>
+                            <p className="font-bold text-lg">
+                              Uang untuk Disetor ke Bank
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                              Tunai diterima - Titipan wadiah
+                            </p>
+                          </div>
+                        </div>
+                        <p className="text-2xl font-bold text-primary">
+                          {formatCurrency(
+                            summary.cashAmount - summary.wadiahDepositTotal,
+                          )}
+                        </p>
+                      </div>
+
+                      {/* Additional Info */}
+                      <div className="mt-4 p-3 rounded-lg bg-muted/50 text-sm">
+                        <p className="font-medium mb-2">
+                          📋 Catatan Jurnal Keuangan:
+                        </p>
+                        <ul className="space-y-1 text-muted-foreground">
+                          <li>
+                            • Setor ke rekening operasional:{" "}
+                            <span className="font-semibold text-foreground">
+                              {formatCurrency(
+                                summary.cashAmount - summary.wadiahDepositTotal,
+                              )}
+                            </span>
+                          </li>
+                          {summary.wadiahDepositTotal > 0 && (
+                            <li>
+                              • Setor ke rekening wadiah/titipan:{" "}
+                              <span className="font-semibold text-purple-600">
+                                {formatCurrency(summary.wadiahDepositTotal)}
+                              </span>
+                            </li>
+                          )}
+                          {summary.transferAmount > 0 && (
+                            <li>
+                              • Transfer/QRIS (sudah masuk rekening):{" "}
+                              <span className="font-semibold text-blue-600">
+                                {formatCurrency(summary.transferAmount)}
+                              </span>
+                            </li>
+                          )}
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Statistics Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
