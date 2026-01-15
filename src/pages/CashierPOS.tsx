@@ -35,6 +35,7 @@ import {
   AlertCircle,
   Calculator,
   Wallet,
+  PiggyBank,
 } from "lucide-react";
 import { LAUNDRY_CATEGORIES, type OrderStatus } from "@/lib/constants";
 import {
@@ -55,6 +56,7 @@ import {
   SyariahPolicyInfo,
   SyariahPaymentDialog,
   WadiahBalanceCard,
+  WadiahDepositDialog,
   type SyariahPaymentData,
 } from "@/components/syariah";
 
@@ -138,6 +140,7 @@ export default function CashierPOS() {
   // Payment modal states - Syariah
   const [showSyariahPaymentDialog, setShowSyariahPaymentDialog] =
     useState(false);
+  const [showWadiahDepositDialog, setShowWadiahDepositDialog] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer">(
     "cash",
@@ -792,6 +795,18 @@ export default function CashierPOS() {
             </p>
           </div>
 
+          {/* Action Buttons */}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowWadiahDepositDialog(true)}
+              className="bg-gradient-to-r from-emerald-500/10 to-green-500/10 border-emerald-500/30 hover:bg-emerald-500/20"
+            >
+              <PiggyBank className="h-4 w-4 mr-2 text-emerald-600" />
+              Setor Wadiah
+            </Button>
+          </div>
+
           {/* Quick Stats - only show when searched */}
           {hasSearched && bills.length > 0 && (
             <div className="flex gap-4">
@@ -1406,6 +1421,18 @@ export default function CashierPOS() {
           }))}
           onConfirmPayment={handleSyariahPayment}
           isProcessing={processingPayment}
+        />
+
+        {/* Wadiah Deposit Dialog */}
+        <WadiahDepositDialog
+          open={showWadiahDepositDialog}
+          onOpenChange={setShowWadiahDepositDialog}
+          onDepositSuccess={() => {
+            // Optionally refresh data after deposit
+            if (hasSearched && searchQuery) {
+              searchBills(searchQuery, filterClass);
+            }
+          }}
         />
 
         {/* Wadiah Balance Card (shown when bills are selected) */}
