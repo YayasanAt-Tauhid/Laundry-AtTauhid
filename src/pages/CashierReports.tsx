@@ -56,6 +56,7 @@ interface PaymentRecord {
   wadiah_used: number | null;
   change_amount: number | null;
   paid_amount: number | null;
+  rounding_applied: number | null;
   students: {
     id: string;
     name: string;
@@ -63,6 +64,22 @@ interface PaymentRecord {
   };
   laundry_partners: {
     name: string;
+  };
+}
+
+interface WadiahDepositRecord {
+  id: string;
+  student_id: string;
+  transaction_type: string;
+  amount: number;
+  balance_before: number;
+  balance_after: number;
+  notes: string | null;
+  created_at: string;
+  students?: {
+    id: string;
+    name: string;
+    class: string;
   };
 }
 
@@ -83,6 +100,8 @@ interface SummaryData {
   transferAmount: number;
   wadiahUsedTotal: number;
   wadiahDepositTotal: number;
+  manualDepositTotal: number;
+  manualDepositCount: number;
   byCategory: Record<string, { count: number; amount: number }>;
   byClass: Record<string, { count: number; amount: number }>;
 }
@@ -110,6 +129,8 @@ export default function CashierReports() {
     transferAmount: 0,
     wadiahUsedTotal: 0,
     wadiahDepositTotal: 0,
+    manualDepositTotal: 0,
+    manualDepositCount: 0,
     byCategory: {},
     byClass: {},
   });
@@ -122,6 +143,11 @@ export default function CashierReports() {
   );
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
+
+  // Wadiah manual deposit transactions
+  const [wadiahDeposits, setWadiahDeposits] = useState<WadiahDepositRecord[]>(
+    [],
+  );
 
   // Fetch cashier list for admin filter
   const fetchCashierList = async () => {
@@ -227,6 +253,7 @@ export default function CashierReports() {
                   wadiah_used,
                   change_amount,
                   paid_amount,
+                  rounding_applied,
                   paid_by,
                   students!inner (id, name, class),
                   laundry_partners (name)
@@ -322,6 +349,8 @@ export default function CashierReports() {
           transferAmount: 0,
           wadiahUsedTotal: 0,
           wadiahDepositTotal: 0,
+          manualDepositTotal: 0,
+          manualDepositCount: 0,
           byCategory: {},
           byClass: {},
         };
@@ -360,11 +389,24 @@ export default function CashierReports() {
           currentSummary.byClass[cls].amount += payment.total_price;
         });
 
-        // 3. Fetch Wadiah Transactions for deposit total (change_deposit)
+        // 3. Fetch Wadiah Transactions for deposit total (change_deposit AND manual deposit)
         let wadiahQuery = supabase
           .from("wadiah_transactions")
-          .select("amount, transaction_type, created_at")
-          .eq("transaction_type", "change_deposit");
+          .select(
+            `
+            id,
+            amount,
+            transaction_type,
+            created_at,
+            student_id,
+            notes,
+            balance_before,
+            balance_after,
+            students (id, name, class)
+          `,
+          )
+          .in("transaction_type", ["change_deposit", "deposit"])
+          .order("created_at", { ascending: false });
 
         if (period !== "all") {
           wadiahQuery = wadiahQuery
@@ -375,10 +417,20 @@ export default function CashierReports() {
         const { data: wadiahData, error: wadiahError } = await wadiahQuery;
 
         if (!wadiahError && wadiahData) {
-          currentSummary.wadiahDepositTotal = wadiahData.reduce(
-            (sum, tx) => sum + (tx.amount || 0),
-            0,
-          );
+          const manualDeposits: WadiahDepositRecord[] = [];
+
+          // Separate change_deposit and manual deposit
+          wadiahData.forEach((tx: WadiahDepositRecord) => {
+            if (tx.transaction_type === "change_deposit") {
+              currentSummary.wadiahDepositTotal += tx.amount || 0;
+            } else if (tx.transaction_type === "deposit") {
+              currentSummary.manualDepositTotal += tx.amount || 0;
+              currentSummary.manualDepositCount++;
+              manualDeposits.push(tx as WadiahDepositRecord);
+            }
+          });
+
+          setWadiahDeposits(manualDeposits);
         }
 
         setSummary(currentSummary);
@@ -636,7 +688,11 @@ export default function CashierReports() {
       "Kelas",
       "Kategori",
       "Jumlah",
-      "Total",
+      "Tagihan",
+      "Wadiah Digunakan",
+      "Dibayar",
+      "Kembalian",
+      "Diskon Pembulatan",
       "Metode",
     ];
     // NOTE: Currently exports only visible page. Should be enhanced to fetch all.
@@ -649,6 +705,10 @@ export default function CashierReports() {
         ?.label || p.category,
       p.category === "kiloan" ? `${p.weight_kg} kg` : `${p.item_count} pcs`,
       p.total_price,
+      p.wadiah_used || 0,
+      p.paid_amount || p.total_price - (p.wadiah_used || 0),
+      p.change_amount || 0,
+      p.rounding_applied || 0,
       p.payment_method === "cash" ? "Tunai" : "Transfer",
     ]);
 
@@ -794,7 +854,9 @@ export default function CashierReports() {
           </div>
 
           ${
-            summary.wadiahDepositTotal > 0 || summary.wadiahUsedTotal > 0
+            summary.wadiahDepositTotal > 0 ||
+            summary.wadiahUsedTotal > 0 ||
+            summary.manualDepositTotal > 0
               ? `
           <div style="margin: 20px 0; padding: 15px; border: 2px dashed #9333ea; border-radius: 8px; background: #faf5ff;">
             <h3 style="margin: 0 0 15px; color: #9333ea;">📋 Ringkasan Setor Bank</h3>
@@ -804,10 +866,20 @@ export default function CashierReports() {
                 <td style="border: none; padding: 5px 0; text-align: right; font-weight: bold; color: #16a34a;">${formatCurrency(summary.cashAmount)}</td>
               </tr>
               ${
+                summary.manualDepositTotal > 0
+                  ? `
+              <tr style="background: none;">
+                <td style="border: none; padding: 5px 0;">Setoran Wadiah Manual (${summary.manualDepositCount} transaksi)</td>
+                <td style="border: none; padding: 5px 0; text-align: right; font-weight: bold; color: #10b981;">+ ${formatCurrency(summary.manualDepositTotal)}</td>
+              </tr>
+              `
+                  : ""
+              }
+              ${
                 summary.wadiahDepositTotal > 0
                   ? `
               <tr style="background: none;">
-                <td style="border: none; padding: 5px 0;">Titipan Wadiah Siswa (dikurangi)</td>
+                <td style="border: none; padding: 5px 0;">Titipan Wadiah dari Kembalian (dikurangi)</td>
                 <td style="border: none; padding: 5px 0; text-align: right; font-weight: bold; color: #9333ea;">- ${formatCurrency(summary.wadiahDepositTotal)}</td>
               </tr>
               `
@@ -815,14 +887,14 @@ export default function CashierReports() {
               }
               <tr style="background: none; border-top: 2px solid #9333ea;">
                 <td style="border: none; padding: 10px 0 5px; font-weight: bold; font-size: 14px;">Setor ke Rekening Operasional</td>
-                <td style="border: none; padding: 10px 0 5px; text-align: right; font-weight: bold; font-size: 16px; color: #7c3aed;">${formatCurrency(summary.cashAmount - summary.wadiahDepositTotal)}</td>
+                <td style="border: none; padding: 10px 0 5px; text-align: right; font-weight: bold; font-size: 16px; color: #7c3aed;">${formatCurrency(summary.cashAmount - summary.wadiahDepositTotal + summary.manualDepositTotal)}</td>
               </tr>
               ${
-                summary.wadiahDepositTotal > 0
+                summary.wadiahDepositTotal > 0 || summary.manualDepositTotal > 0
                   ? `
               <tr style="background: none;">
                 <td style="border: none; padding: 5px 0; font-weight: bold;">Setor ke Rekening Wadiah/Titipan</td>
-                <td style="border: none; padding: 5px 0; text-align: right; font-weight: bold; color: #9333ea;">${formatCurrency(summary.wadiahDepositTotal)}</td>
+                <td style="border: none; padding: 5px 0; text-align: right; font-weight: bold; color: #9333ea;">${formatCurrency(summary.wadiahDepositTotal + summary.manualDepositTotal)}</td>
               </tr>
               `
                   : ""
@@ -843,7 +915,11 @@ export default function CashierReports() {
                 <th>Kelas</th>
                 <th>Kategori</th>
                 <th>Jumlah</th>
-                <th>Total</th>
+                <th>Tagihan</th>
+                <th>Wadiah</th>
+                <th>Dibayar</th>
+                <th>Kembalian</th>
+                <th>Diskon</th>
                 <th>Metode</th>
               </tr>
             </thead>
@@ -859,6 +935,10 @@ export default function CashierReports() {
                   <td>${LAUNDRY_CATEGORIES[p.category as keyof typeof LAUNDRY_CATEGORIES]?.label || p.category}</td>
                   <td>${p.category === "kiloan" ? `${p.weight_kg} kg` : `${p.item_count} pcs`}</td>
                   <td>${formatCurrency(p.total_price)}</td>
+                  <td style="color: ${p.wadiah_used && p.wadiah_used > 0 ? "#d97706" : "#9ca3af"};">${p.wadiah_used && p.wadiah_used > 0 ? "-" + formatCurrency(p.wadiah_used) : "-"}</td>
+                  <td style="color: #16a34a; font-weight: 600;">${formatCurrency(p.paid_amount || p.total_price - (p.wadiah_used || 0))}</td>
+                  <td style="color: ${p.change_amount && p.change_amount > 0 ? "#2563eb" : "#9ca3af"};">${p.change_amount && p.change_amount > 0 ? formatCurrency(p.change_amount) + " → Wadiah" : "-"}</td>
+                  <td style="color: ${p.rounding_applied && p.rounding_applied > 0 ? "#16a34a" : "#9ca3af"};">${p.rounding_applied && p.rounding_applied > 0 ? "-" + formatCurrency(p.rounding_applied) : "-"}</td>
                   <td class="${p.payment_method === "cash" ? "method-cash" : "method-transfer"}">
                     ${p.payment_method === "cash" ? "Tunai" : "Transfer"}
                   </td>
@@ -1054,8 +1134,9 @@ export default function CashierReports() {
 
             {/* Wadiah Summary Cards */}
             {(summary.wadiahUsedTotal > 0 ||
-              summary.wadiahDepositTotal > 0) && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              summary.wadiahDepositTotal > 0 ||
+              summary.manualDepositTotal > 0) && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <Card className="dashboard-card bg-gradient-to-br from-amber-500/10 to-yellow-500/5 border-amber-500/20">
                   <CardContent className="p-6">
                     <div className="flex items-center justify-between">
@@ -1087,6 +1168,9 @@ export default function CashierReports() {
                         <p className="text-2xl font-bold mt-1 text-purple-600">
                           {formatCurrency(summary.wadiahDepositTotal)}
                         </p>
+                        <p className="text-xs text-muted-foreground">
+                          Simpan kembalian
+                        </p>
                         <p className="text-xs text-muted-foreground mt-1">
                           Untuk disetor ke bank (titipan siswa)
                         </p>
@@ -1097,7 +1181,117 @@ export default function CashierReports() {
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Manual Deposit Card */}
+                <Card className="dashboard-card bg-gradient-to-br from-emerald-500/10 to-green-500/5 border-emerald-500/20">
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">
+                          Setoran Wadiah Manual
+                        </p>
+                        <p className="text-2xl font-bold mt-1 text-emerald-600">
+                          {formatCurrency(summary.manualDepositTotal)}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {summary.manualDepositCount} transaksi
+                        </p>
+                      </div>
+                      <div className="p-3 rounded-xl bg-emerald-500/20 text-emerald-600">
+                        <PiggyBank className="h-6 w-6" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
+            )}
+
+            {/* Manual Wadiah Deposits Table */}
+            {wadiahDeposits.length > 0 && (
+              <Card className="dashboard-card border-emerald-500/30">
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <PiggyBank className="h-5 w-5 text-emerald-500" />
+                    Riwayat Setoran Wadiah Manual ({wadiahDeposits.length})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b">
+                          <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">
+                            Waktu
+                          </th>
+                          <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">
+                            Siswa
+                          </th>
+                          <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">
+                            Kelas
+                          </th>
+                          <th className="text-right py-3 px-2 text-sm font-medium text-muted-foreground">
+                            Jumlah
+                          </th>
+                          <th className="text-right py-3 px-2 text-sm font-medium text-muted-foreground">
+                            Saldo Setelah
+                          </th>
+                          <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">
+                            Catatan
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {wadiahDeposits.map((deposit) => (
+                          <tr
+                            key={deposit.id}
+                            className="border-b hover:bg-muted/30 transition-colors"
+                          >
+                            <td className="py-3 px-2 text-sm">
+                              {formatDateTime(deposit.created_at)}
+                            </td>
+                            <td className="py-3 px-2">
+                              <div className="flex items-center gap-2">
+                                <User className="h-4 w-4 text-muted-foreground" />
+                                <span className="font-medium">
+                                  {deposit.students?.name || "-"}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="py-3 px-2 text-sm">
+                              {deposit.students?.class || "-"}
+                            </td>
+                            <td className="py-3 px-2 text-right">
+                              <span className="font-bold text-emerald-600">
+                                +{formatCurrency(deposit.amount)}
+                              </span>
+                            </td>
+                            <td className="py-3 px-2 text-right text-sm">
+                              {formatCurrency(deposit.balance_after)}
+                            </td>
+                            <td className="py-3 px-2 text-sm text-muted-foreground max-w-[200px] truncate">
+                              {deposit.notes || "-"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-emerald-500/10">
+                          <td
+                            colSpan={3}
+                            className="py-3 px-2 font-bold text-emerald-700"
+                          >
+                            Total Setoran Manual
+                          </td>
+                          <td className="py-3 px-2 text-right font-bold text-emerald-600">
+                            {formatCurrency(summary.manualDepositTotal)}
+                          </td>
+                          <td colSpan={2}></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
             )}
 
             {/* Bank Deposit Summary - For Cashier to know how much to deposit */}
@@ -1129,7 +1323,28 @@ export default function CashierReports() {
                       </p>
                     </div>
 
-                    {/* Wadiah Deposit (to be set aside) */}
+                    {/* Manual Wadiah Deposit */}
+                    {summary.manualDepositTotal > 0 && (
+                      <div className="flex items-center justify-between p-3 rounded-lg bg-emerald-500/10">
+                        <div className="flex items-center gap-3">
+                          <PiggyBank className="h-5 w-5 text-emerald-600" />
+                          <div>
+                            <p className="font-medium text-emerald-700">
+                              Setoran Wadiah Manual
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {summary.manualDepositCount} setoran dari
+                              wali/siswa
+                            </p>
+                          </div>
+                        </div>
+                        <p className="text-xl font-bold text-emerald-600">
+                          + {formatCurrency(summary.manualDepositTotal)}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Wadiah Deposit from change (to be set aside) */}
                     {summary.wadiahDepositTotal > 0 && (
                       <div className="flex items-center justify-between p-3 rounded-lg bg-purple-500/10">
                         <div className="flex items-center gap-3">
@@ -1190,7 +1405,9 @@ export default function CashierReports() {
                         </div>
                         <p className="text-2xl font-bold text-primary">
                           {formatCurrency(
-                            summary.cashAmount - summary.wadiahDepositTotal,
+                            summary.cashAmount -
+                              summary.wadiahDepositTotal +
+                              summary.manualDepositTotal,
                           )}
                         </p>
                       </div>
@@ -1205,10 +1422,21 @@ export default function CashierReports() {
                             • Setor ke rekening operasional:{" "}
                             <span className="font-semibold text-foreground">
                               {formatCurrency(
-                                summary.cashAmount - summary.wadiahDepositTotal,
+                                summary.cashAmount -
+                                  summary.wadiahDepositTotal +
+                                  summary.manualDepositTotal,
                               )}
                             </span>
                           </li>
+                          {summary.manualDepositTotal > 0 && (
+                            <li>
+                              Setor ke <strong>Rekening Wadiah</strong> (Setoran
+                              Manual):{" "}
+                              <span className="font-semibold text-emerald-600">
+                                {formatCurrency(summary.manualDepositTotal)}
+                              </span>
+                            </li>
+                          )}
                           {summary.wadiahDepositTotal > 0 && (
                             <li>
                               • Setor ke rekening wadiah/titipan:{" "}
@@ -1373,28 +1601,34 @@ export default function CashierReports() {
                       <table className="w-full">
                         <thead>
                           <tr className="border-b">
-                            <th className="text-left py-3 px-4 font-medium text-muted-foreground">
+                            <th className="text-left py-3 px-2 font-medium text-muted-foreground text-sm">
                               Waktu Bayar
                             </th>
-                            <th className="text-left py-3 px-4 font-medium text-muted-foreground">
-                              Tgl Laundry
-                            </th>
-                            <th className="text-left py-3 px-4 font-medium text-muted-foreground">
+                            <th className="text-left py-3 px-2 font-medium text-muted-foreground text-sm">
                               Siswa
                             </th>
-                            <th className="text-left py-3 px-4 font-medium text-muted-foreground">
+                            <th className="text-left py-3 px-2 font-medium text-muted-foreground text-sm">
                               Kategori
                             </th>
-                            <th className="text-left py-3 px-4 font-medium text-muted-foreground">
-                              Jumlah
+                            <th className="text-right py-3 px-2 font-medium text-muted-foreground text-sm">
+                              Tagihan
                             </th>
-                            <th className="text-left py-3 px-4 font-medium text-muted-foreground">
-                              Total
+                            <th className="text-right py-3 px-2 font-medium text-muted-foreground text-sm">
+                              Wadiah
                             </th>
-                            <th className="text-left py-3 px-4 font-medium text-muted-foreground">
+                            <th className="text-right py-3 px-2 font-medium text-muted-foreground text-sm">
+                              Dibayar
+                            </th>
+                            <th className="text-right py-3 px-2 font-medium text-muted-foreground text-sm">
+                              Kembalian
+                            </th>
+                            <th className="text-right py-3 px-2 font-medium text-muted-foreground text-sm">
+                              Diskon
+                            </th>
+                            <th className="text-left py-3 px-2 font-medium text-muted-foreground text-sm">
                               Metode
                             </th>
-                            <th className="text-left py-3 px-4 font-medium text-muted-foreground">
+                            <th className="text-left py-3 px-2 font-medium text-muted-foreground text-sm">
                               Aksi
                             </th>
                           </tr>
@@ -1405,11 +1639,11 @@ export default function CashierReports() {
                               key={payment.id}
                               className="border-b hover:bg-muted/50 transition-colors"
                             >
-                              <td className="py-3 px-4">
-                                <div className="flex items-center gap-2">
-                                  <Clock className="h-4 w-4 text-muted-foreground" />
+                              <td className="py-3 px-2">
+                                <div className="flex items-center gap-1">
+                                  <Clock className="h-3 w-3 text-muted-foreground" />
                                   <div>
-                                    <p className="text-sm font-medium">
+                                    <p className="text-xs font-medium">
                                       {formatDate(payment.paid_at)}
                                     </p>
                                     <p className="text-xs text-muted-foreground">
@@ -1418,42 +1652,89 @@ export default function CashierReports() {
                                   </div>
                                 </div>
                               </td>
-                              <td className="py-3 px-4">
-                                <p className="text-sm">
-                                  {formatLaundryDate(payment.laundry_date)}
-                                </p>
-                              </td>
-                              <td className="py-3 px-4">
-                                <div className="flex items-center gap-2">
-                                  <User className="h-4 w-4 text-muted-foreground" />
+                              <td className="py-3 px-2">
+                                <div className="flex items-center gap-1">
+                                  <User className="h-3 w-3 text-muted-foreground" />
                                   <div>
-                                    <p className="font-medium">
+                                    <p className="text-sm font-medium">
                                       {payment.students?.name || "-"}
                                     </p>
                                     <p className="text-xs text-muted-foreground">
-                                      Kelas {payment.students?.class || "-"}
+                                      {payment.students?.class || "-"}
                                     </p>
                                   </div>
                                 </div>
                               </td>
-                              <td className="py-3 px-4">
-                                <span className="px-2 py-1 bg-primary/10 text-primary rounded-md text-sm">
+                              <td className="py-3 px-2">
+                                <span className="px-2 py-1 bg-primary/10 text-primary rounded-md text-xs">
                                   {LAUNDRY_CATEGORIES[
                                     payment.category as keyof typeof LAUNDRY_CATEGORIES
                                   ]?.label || payment.category}
                                 </span>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  {payment.category === "kiloan"
+                                    ? `${payment.weight_kg} kg`
+                                    : `${payment.item_count} pcs`}
+                                </p>
                               </td>
-                              <td className="py-3 px-4 text-sm">
-                                {payment.category === "kiloan"
-                                  ? `${payment.weight_kg} kg`
-                                  : `${payment.item_count} pcs`}
-                              </td>
-                              <td className="py-3 px-4">
-                                <p className="font-bold text-emerald-600">
+                              <td className="py-3 px-2 text-right">
+                                <p className="font-semibold text-sm">
                                   {formatCurrency(payment.total_price)}
                                 </p>
                               </td>
-                              <td className="py-3 px-4">
+                              <td className="py-3 px-2 text-right">
+                                {payment.wadiah_used &&
+                                payment.wadiah_used > 0 ? (
+                                  <p className="text-sm text-amber-600 font-medium">
+                                    -{formatCurrency(payment.wadiah_used)}
+                                  </p>
+                                ) : (
+                                  <p className="text-xs text-muted-foreground">
+                                    -
+                                  </p>
+                                )}
+                              </td>
+                              <td className="py-3 px-2 text-right">
+                                <p className="text-sm font-medium text-emerald-600">
+                                  {formatCurrency(
+                                    payment.paid_amount ||
+                                      payment.total_price -
+                                        (payment.wadiah_used || 0),
+                                  )}
+                                </p>
+                              </td>
+                              <td className="py-3 px-2 text-right">
+                                {payment.change_amount &&
+                                payment.change_amount > 0 ? (
+                                  <div>
+                                    <p className="text-sm text-blue-600">
+                                      {formatCurrency(payment.change_amount)}
+                                    </p>
+                                    {/* Indicator jika kembalian disimpan ke wadiah */}
+                                    <p className="text-xs text-purple-500">
+                                      → Wadiah
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <p className="text-xs text-muted-foreground">
+                                    -
+                                  </p>
+                                )}
+                              </td>
+                              {/* Diskon Pembulatan */}
+                              <td className="py-3 px-2 text-right">
+                                {payment.rounding_applied &&
+                                payment.rounding_applied > 0 ? (
+                                  <p className="text-xs text-green-600">
+                                    -{formatCurrency(payment.rounding_applied)}
+                                  </p>
+                                ) : (
+                                  <p className="text-xs text-muted-foreground">
+                                    -
+                                  </p>
+                                )}
+                              </td>
+                              <td className="py-3 px-2">
                                 <span
                                   className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
                                     payment.payment_method === "cash"
@@ -1474,7 +1755,7 @@ export default function CashierReports() {
                                   )}
                                 </span>
                               </td>
-                              <td className="py-3 px-4">
+                              <td className="py-3 px-2">
                                 <div className="flex items-center gap-1">
                                   <Button
                                     variant="ghost"
@@ -1555,6 +1836,7 @@ export default function CashierReports() {
 
             {selectedPayment && (
               <div className="space-y-4 py-4">
+                {/* Status & Info */}
                 <div className="bg-muted/50 rounded-xl p-4 space-y-3">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Status</span>
@@ -1582,19 +1864,9 @@ export default function CashierReports() {
                         : "Transfer"}
                     </span>
                   </div>
-                  {selectedPayment.wadiah_used &&
-                    selectedPayment.wadiah_used > 0 && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">
-                          Wadiah Digunakan
-                        </span>
-                        <span className="text-blue-600 font-medium">
-                          {formatCurrency(selectedPayment.wadiah_used)}
-                        </span>
-                      </div>
-                    )}
                 </div>
 
+                {/* Informasi Siswa */}
                 <div className="space-y-2">
                   <h4 className="font-medium">Informasi Siswa</h4>
                   <div className="bg-muted/30 rounded-lg p-3 space-y-1">
@@ -1609,6 +1881,7 @@ export default function CashierReports() {
                   </div>
                 </div>
 
+                {/* Detail Laundry */}
                 <div className="space-y-2">
                   <h4 className="font-medium">Detail Laundry</h4>
                   <div className="bg-muted/30 rounded-lg p-3 space-y-1">
@@ -1637,15 +1910,125 @@ export default function CashierReports() {
                   </div>
                 </div>
 
+                {/* Rincian Pembayaran */}
+                <div className="space-y-2">
+                  <h4 className="font-medium flex items-center gap-2">
+                    <Wallet className="h-4 w-4 text-primary" />
+                    Rincian Pembayaran
+                  </h4>
+                  <div className="bg-gradient-to-br from-primary/5 to-emerald-500/5 border border-primary/20 rounded-lg p-3 space-y-2">
+                    {/* Tagihan */}
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">
+                        Total Tagihan
+                      </span>
+                      <span className="font-medium">
+                        {formatCurrency(selectedPayment.total_price)}
+                      </span>
+                    </div>
+
+                    {/* Wadiah Digunakan */}
+                    {selectedPayment.wadiah_used &&
+                      selectedPayment.wadiah_used > 0 && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground flex items-center gap-1">
+                            <PiggyBank className="h-3 w-3" />
+                            Saldo Wadiah Digunakan
+                          </span>
+                          <span className="text-amber-600 font-medium">
+                            - {formatCurrency(selectedPayment.wadiah_used)}
+                          </span>
+                        </div>
+                      )}
+
+                    {/* Yang Harus Dibayar (jika ada wadiah) */}
+                    {selectedPayment.wadiah_used &&
+                      selectedPayment.wadiah_used > 0 && (
+                        <div className="flex justify-between text-sm border-t border-dashed pt-2">
+                          <span className="text-muted-foreground">
+                            Sisa yang Dibayar
+                          </span>
+                          <span className="font-medium">
+                            {formatCurrency(
+                              selectedPayment.total_price -
+                                selectedPayment.wadiah_used,
+                            )}
+                          </span>
+                        </div>
+                      )}
+
+                    {/* Jumlah Dibayar */}
+                    <div className="flex justify-between text-sm border-t pt-2">
+                      <span className="text-muted-foreground">
+                        Jumlah Dibayar
+                      </span>
+                      <span className="font-bold text-emerald-600">
+                        {formatCurrency(
+                          selectedPayment.paid_amount ||
+                            selectedPayment.total_price -
+                              (selectedPayment.wadiah_used || 0),
+                        )}
+                      </span>
+                    </div>
+
+                    {/* Kembalian */}
+                    {selectedPayment.change_amount &&
+                      selectedPayment.change_amount > 0 && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">
+                            Kembalian
+                          </span>
+                          <span className="text-blue-600 font-medium">
+                            {formatCurrency(selectedPayment.change_amount)}
+                          </span>
+                        </div>
+                      )}
+
+                    {/* Disimpan ke Wadiah */}
+                    {selectedPayment.change_amount &&
+                      selectedPayment.change_amount > 0 && (
+                        <div className="flex justify-between text-sm bg-purple-500/10 rounded px-2 py-1 -mx-1">
+                          <span className="text-purple-600 flex items-center gap-1">
+                            <PiggyBank className="h-3 w-3" />
+                            Disimpan ke Wadiah
+                          </span>
+                          <span className="text-purple-600 font-medium">
+                            {formatCurrency(selectedPayment.change_amount)}
+                          </span>
+                        </div>
+                      )}
+
+                    {/* Diskon Pembulatan */}
+                    {selectedPayment.rounding_applied &&
+                      selectedPayment.rounding_applied > 0 && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">
+                            Diskon Pembulatan (Sedekah)
+                          </span>
+                          <span className="text-green-600 font-medium">
+                            - {formatCurrency(selectedPayment.rounding_applied)}
+                          </span>
+                        </div>
+                      )}
+                  </div>
+                </div>
+
+                {/* Total Summary */}
                 <div className="border-t pt-4">
                   <div className="flex justify-between items-center">
-                    <span className="text-lg font-medium">
-                      Total Pembayaran
-                    </span>
+                    <span className="text-lg font-medium">Total Tagihan</span>
                     <span className="text-2xl font-bold text-emerald-600">
                       {formatCurrency(selectedPayment.total_price)}
                     </span>
                   </div>
+                  {selectedPayment.wadiah_used &&
+                    selectedPayment.wadiah_used > 0 && (
+                      <p className="text-xs text-muted-foreground mt-1 text-right">
+                        (Dibayar:{" "}
+                        {formatCurrency(selectedPayment.paid_amount || 0)} +
+                        Wadiah: {formatCurrency(selectedPayment.wadiah_used)})
+                      </p>
+                    )}
                 </div>
 
                 <div className="pt-4">
