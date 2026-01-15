@@ -474,6 +474,8 @@ export default function CashierPOS() {
         confirmPaymentManually(
           bill.id,
           paymentData.paymentMethod === "cash" ? "cash" : "bank_transfer",
+          paymentData.paymentMethod === "cash",
+          user?.id,
         ),
       );
 
@@ -595,6 +597,8 @@ export default function CashierPOS() {
         confirmPaymentManually(
           bill.id,
           paymentMethod === "cash" ? "cash" : "bank_transfer",
+          paymentMethod === "cash",
+          user?.id,
         ),
       );
 

@@ -320,10 +320,12 @@ export function useMidtrans() {
 
   // Manual payment confirmation (for admin/cashier/testing)
   // isCashPayment: true for cash payments at cashier (no admin fee)
+  // paidBy: UUID of the cashier who processed the payment
   const confirmPaymentManually = async (
     orderId: string,
     paymentMethod?: string,
     isCashPayment?: boolean,
+    paidBy?: string,
   ) => {
     try {
       // Get order to calculate admin fee
@@ -347,6 +349,7 @@ export function useMidtrans() {
           paid_at: new Date().toISOString(),
           payment_method: isCashPayment ? "cash" : paymentMethod || "manual",
           admin_fee: adminFee,
+          paid_by: paidBy || null,
         })
         .eq("id", orderId);
 

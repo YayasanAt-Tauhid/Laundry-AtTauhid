@@ -89,11 +89,18 @@ interface SummaryData {
 
 const PAGE_SIZE = 20;
 
+interface CashierOption {
+  id: string;
+  full_name: string;
+}
+
 export default function CashierReports() {
   const { toast } = useToast();
-  const { profile } = useAuth();
+  const { profile, user, userRole } = useAuth();
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
+  const [cashierList, setCashierList] = useState<CashierOption[]>([]);
+  const [selectedCashier, setSelectedCashier] = useState<string>("me");
   const [summary, setSummary] = useState<SummaryData>({
     totalTransactions: 0,
     totalAmount: 0,
@@ -115,6 +122,54 @@ export default function CashierReports() {
   );
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
+
+  // Fetch cashier list for admin filter
+  const fetchCashierList = async () => {
+    try {
+      // Get all users with cashier role
+      const { data: cashierRoles } = await supabase
+        .from("user_roles")
+        .select("user_id")
+        .eq("role", "cashier");
+
+      if (cashierRoles && cashierRoles.length > 0) {
+        const userIds = cashierRoles.map((r) => r.user_id);
+        const { data: profiles } = await supabase
+          .from("profiles")
+          .select("user_id, full_name")
+          .in("user_id", userIds);
+
+        if (profiles) {
+          setCashierList(
+            profiles.map((p) => ({
+              id: p.user_id,
+              full_name: p.full_name || "Kasir",
+            })),
+          );
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching cashier list:", error);
+    }
+  };
+
+  // Fetch cashier list if admin
+  useEffect(() => {
+    if (userRole === "admin") {
+      fetchCashierList();
+    }
+  }, [userRole]);
+
+  // Get the cashier ID to filter by
+  const getFilterCashierId = (): string | null => {
+    if (userRole === "admin") {
+      if (selectedCashier === "all") return null; // No filter - show all
+      if (selectedCashier === "me") return user?.id || null;
+      return selectedCashier; // Specific cashier selected
+    }
+    // Regular cashier - always filter by own ID
+    return user?.id || null;
+  };
 
   const getDateRange = () => {
     const now = new Date();
@@ -153,7 +208,7 @@ export default function CashierReports() {
       const from = currentPage * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
 
-      // 1. Fetch Paginated Data
+      // 1. Fetch Paginated Data - Filter by current cashier (paid_by)
       let query = supabase
         .from("laundry_orders")
         .select(
@@ -172,6 +227,7 @@ export default function CashierReports() {
                   wadiah_used,
                   change_amount,
                   paid_amount,
+                  paid_by,
                   students!inner (id, name, class),
                   laundry_partners (name)
                 `,
@@ -180,6 +236,12 @@ export default function CashierReports() {
         .in("status", ["DIBAYAR", "SELESAI"])
         .not("paid_at", "is", null)
         .order("paid_at", { ascending: false });
+
+      // Filter by cashier (paid_by)
+      const filterCashierId = getFilterCashierId();
+      if (filterCashierId) {
+        query = query.eq("paid_by", filterCashierId);
+      }
 
       // Apply filters to main query
       if (period !== "all") {
@@ -209,6 +271,7 @@ export default function CashierReports() {
 
       // 2. Calculate Summary (Need specific fields from ALL matching rows)
       // We create a separate query with the same filters but no range/pagination
+      // Also filter by current cashier (paid_by)
       let summaryQuery = supabase
         .from("laundry_orders")
         .select(
@@ -222,6 +285,11 @@ export default function CashierReports() {
         )
         .in("status", ["DIBAYAR", "SELESAI"])
         .not("paid_at", "is", null);
+
+      // Filter by cashier (paid_by) - same as main query
+      if (filterCashierId) {
+        summaryQuery = summaryQuery.eq("paid_by", filterCashierId);
+      }
 
       if (period !== "all") {
         summaryQuery = summaryQuery
@@ -328,8 +396,17 @@ export default function CashierReports() {
   };
 
   useEffect(() => {
-    fetchPayments();
-  }, [period, currentPage, filterPaymentMethod, searchQuery]); // Re-fetch on any filter change
+    if (user?.id) {
+      fetchPayments();
+    }
+  }, [
+    period,
+    currentPage,
+    filterPaymentMethod,
+    searchQuery,
+    user?.id,
+    selectedCashier,
+  ]); // Re-fetch on any filter change
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("id-ID", {
@@ -817,11 +894,46 @@ export default function CashierReports() {
               Laporan Pembayaran
             </h1>
             <p className="text-muted-foreground mt-1">
-              Riwayat dan ringkasan pembayaran yang telah diproses
+              {userRole === "admin"
+                ? selectedCashier === "all"
+                  ? "Riwayat pembayaran semua kasir"
+                  : selectedCashier === "me"
+                    ? `Riwayat pembayaran Anda (${profile?.full_name || "Kasir"})`
+                    : `Riwayat pembayaran kasir: ${cashierList.find((c) => c.id === selectedCashier)?.full_name || "Kasir"}`
+                : `Riwayat pembayaran Anda (${profile?.full_name || "Kasir"})`}
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Filter Kasir - Only for Admin */}
+            {userRole === "admin" && (
+              <Select
+                value={selectedCashier}
+                onValueChange={(val) => {
+                  setSelectedCashier(val);
+                  setCurrentPage(0);
+                }}
+              >
+                <SelectTrigger className="w-48">
+                  <User className="h-4 w-4 mr-2" />
+                  <SelectValue placeholder="Pilih Kasir" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="me">
+                    Saya ({profile?.full_name || "Kasir"})
+                  </SelectItem>
+                  <SelectItem value="all">Semua Kasir</SelectItem>
+                  {cashierList
+                    .filter((c) => c.id !== user?.id)
+                    .map((cashier) => (
+                      <SelectItem key={cashier.id} value={cashier.id}>
+                        {cashier.full_name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            )}
+
             <Select
               value={period}
               onValueChange={(val) => {
