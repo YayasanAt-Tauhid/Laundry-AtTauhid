@@ -13,7 +13,7 @@ const corsHeaders = {
 interface StudentData {
   name: string;
   class: string;
-  nis?: string;
+  nik?: string;
 }
 
 interface ParentData {
@@ -123,7 +123,7 @@ Deno.serve(async (req) => {
         const { data: existingUsers } =
           await supabaseAdmin.auth.admin.listUsers();
         const emailExists = existingUsers?.users?.some(
-          (u) => u.email?.toLowerCase() === parent.email.toLowerCase()
+          (u) => u.email?.toLowerCase() === parent.email.toLowerCase(),
         );
 
         if (emailExists) {
@@ -163,7 +163,7 @@ Deno.serve(async (req) => {
           for (const student of parent.students) {
             if (!student.name || !student.class) {
               console.warn(
-                `Skipping student with missing data for parent ${parent.email}`
+                `Skipping student with missing data for parent ${parent.email}`,
               );
               continue;
             }
@@ -174,13 +174,13 @@ Deno.serve(async (req) => {
                 parent_id: userId,
                 name: student.name,
                 class: student.class,
-                nis: student.nis || null,
+                nik: student.nik || null,
                 is_active: true,
               });
 
             if (studentError) {
               console.error(
-                `Error creating student ${student.name}: ${studentError.message}`
+                `Error creating student ${student.name}: ${studentError.message}`,
               );
             } else {
               result.students_created++;
@@ -200,7 +200,10 @@ Deno.serve(async (req) => {
     // Calculate summary
     const successCount = results.filter((r) => r.success).length;
     const failedCount = results.filter((r) => !r.success).length;
-    const totalStudents = results.reduce((sum, r) => sum + r.students_created, 0);
+    const totalStudents = results.reduce(
+      (sum, r) => sum + r.students_created,
+      0,
+    );
 
     return new Response(
       JSON.stringify({
@@ -217,7 +220,7 @@ Deno.serve(async (req) => {
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 200,
-      }
+      },
     );
   } catch (error) {
     console.error("Import parents error:", error);
@@ -230,7 +233,7 @@ Deno.serve(async (req) => {
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: error.message.includes("Unauthorized") ? 403 : 500,
-      }
+      },
     );
   }
 });

@@ -75,6 +75,7 @@ interface Bill {
     id: string;
     name: string;
     class: string;
+    nik: string;
   };
   laundry_partners: {
     name: string;
@@ -85,6 +86,7 @@ interface StudentBillGroup {
   studentId: string;
   studentName: string;
   studentClass: string;
+  studentNik: string;
   bills: Bill[];
   totalAmount: number;
 }
@@ -115,6 +117,7 @@ interface StudentSuggestion {
   id: string;
   name: string;
   class: string;
+  nik: string;
 }
 
 export default function CashierPOS() {
@@ -187,10 +190,11 @@ export default function CashierPOS() {
 
       setLoadingSuggestions(true);
       try {
+        // Search by name OR NIK
         let studentQuery = supabase
           .from("students")
-          .select("id, name, class")
-          .ilike("name", `%${query.trim()}%`)
+          .select("id, name, class, nik")
+          .or(`name.ilike.%${query.trim()}%,nik.ilike.%${query.trim()}%`)
           .limit(10);
 
         // Apply class filter if selected
@@ -253,7 +257,7 @@ export default function CashierPOS() {
       toast({
         variant: "destructive",
         title: "Masukkan pencarian",
-        description: "Cari nama siswa atau pilih kelas terlebih dahulu",
+        description: "Cari nama/NIK siswa atau pilih kelas terlebih dahulu",
       });
       return;
     }
@@ -263,11 +267,14 @@ export default function CashierPOS() {
     setSelectedBills(new Set());
 
     try {
-      // First, find matching students
+      // First, find matching students by name OR NIK
       let studentQuery = supabase.from("students").select("id");
 
       if (query.trim()) {
-        studentQuery = studentQuery.ilike("name", `%${query.trim()}%`);
+        // Search by name OR NIK
+        studentQuery = studentQuery.or(
+          `name.ilike.%${query.trim()}%,nik.ilike.%${query.trim()}%`,
+        );
       }
       if (classFilter !== "all") {
         studentQuery = studentQuery.eq("class", classFilter);
@@ -299,7 +306,7 @@ export default function CashierPOS() {
                     status,
                     created_at,
                     laundry_date,
-                    students (id, name, class),
+                    students (id, name, class, nik),
                     laundry_partners (name)
                 `,
         )
@@ -353,6 +360,7 @@ export default function CashierPOS() {
           studentId,
           studentName: bill.students?.name || "Unknown",
           studentClass: bill.students?.class || "-",
+          studentNik: bill.students?.nik || "-",
           bills: [],
           totalAmount: 0,
         };
@@ -851,7 +859,7 @@ export default function CashierPOS() {
                     )}
                     <Input
                       ref={inputRef}
-                      placeholder="Ketik nama siswa untuk mencari..."
+                      placeholder="Ketik nama atau NIK siswa..."
                       value={searchQuery}
                       onChange={(e) => handleInputChange(e.target.value)}
                       onKeyDown={handleKeyPress}
@@ -899,6 +907,11 @@ export default function CashierPOS() {
                                   {student.name}
                                 </p>
                                 <p className="text-xs text-muted-foreground">
+                                  {student.nik && (
+                                    <span className="font-mono mr-2">
+                                      [{student.nik}]
+                                    </span>
+                                  )}
                                   Kelas {student.class}
                                 </p>
                               </div>
@@ -1060,9 +1073,14 @@ export default function CashierPOS() {
                             <User className="h-5 w-5 text-primary" />
                           </div>
                           <div>
-                            <CardTitle className="text-lg">
-                              {group.studentName}
-                            </CardTitle>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                                {group.studentNik}
+                              </span>
+                              <CardTitle className="text-lg">
+                                {group.studentName}
+                              </CardTitle>
+                            </div>
                             <p className="text-sm text-muted-foreground">
                               Kelas {group.studentClass} • {group.bills.length}{" "}
                               tagihan

@@ -47,6 +47,7 @@ interface Order {
   students: {
     name: string;
     class: string;
+    nik: string;
   };
   laundry_partners: {
     name: string;
@@ -87,7 +88,7 @@ export default function Orders() {
         `
           *,
           laundry_date,
-          students (name, class),
+          students (name, class, nik),
           laundry_partners (name)
         `,
         { count: "exact" },
@@ -141,11 +142,12 @@ export default function Orders() {
       });
 
       fetchOrders();
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         variant: "destructive",
         title: "Error",
-        description: error.message || "Gagal menyetujui order",
+        description:
+          error instanceof Error ? error.message : "Gagal menyetujui order",
       });
     } finally {
       setProcessing(false);
@@ -183,11 +185,12 @@ export default function Orders() {
       setRejectionReason("");
       setSelectedOrder(null);
       fetchOrders();
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         variant: "destructive",
         title: "Error",
-        description: error.message || "Gagal menolak order",
+        description:
+          error instanceof Error ? error.message : "Gagal menolak order",
       });
     } finally {
       setProcessing(false);
@@ -234,6 +237,7 @@ export default function Orders() {
     return (
       order.students?.name?.toLowerCase().includes(searchLower) ||
       order.students?.class?.toLowerCase().includes(searchLower) ||
+      order.students?.nik?.toLowerCase().includes(searchLower) ||
       order.laundry_partners?.name?.toLowerCase().includes(searchLower)
     );
   });
@@ -266,7 +270,7 @@ export default function Orders() {
         <div className="relative max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Cari nama siswa, kelas, atau mitra..."
+            placeholder="Cari NIK, nama siswa, kelas, atau mitra..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-10"
@@ -301,9 +305,14 @@ export default function Orders() {
                       {/* Header: Student Info & Status */}
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex-1 min-w-0">
-                          <h3 className="font-semibold text-foreground truncate">
-                            {order.students?.name}
-                          </h3>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-mono text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                              {order.students?.nik}
+                            </span>
+                            <h3 className="font-semibold text-foreground truncate">
+                              {order.students?.name}
+                            </h3>
+                          </div>
                           <p className="text-sm text-muted-foreground">
                             Kelas {order.students?.class}
                           </p>
@@ -383,7 +392,7 @@ export default function Orders() {
                     <thead className="bg-muted/30">
                       <tr>
                         <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
-                          Siswa
+                          NIK / Siswa
                         </th>
                         <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
                           Kelas
@@ -417,8 +426,15 @@ export default function Orders() {
                           key={order.id}
                           className="border-b border-border/50 hover:bg-muted/20 transition-colors"
                         >
-                          <td className="py-4 px-6 font-medium">
-                            {order.students?.name}
+                          <td className="py-4 px-6">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                                {order.students?.nik}
+                              </span>
+                              <span className="font-medium">
+                                {order.students?.name}
+                              </span>
+                            </div>
                           </td>
                           <td className="py-4 px-6 text-muted-foreground">
                             {order.students?.class}

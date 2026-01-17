@@ -20,6 +20,7 @@ interface Student {
   id: string;
   name: string;
   class: string;
+  nik?: string;
   parent_id: string;
 }
 
@@ -43,14 +44,15 @@ export function StudentAutocomplete({
 
   const selectedStudent = students.find((student) => student.id === value);
 
-  // Filter students based on search query
+  // Filter students based on search query (name, class, or NIK)
   const filteredStudents = React.useMemo(() => {
     if (!searchQuery) return students;
     const query = searchQuery.toLowerCase();
     return students.filter(
       (student) =>
         student.name.toLowerCase().includes(query) ||
-        student.class.toLowerCase().includes(query)
+        student.class.toLowerCase().includes(query) ||
+        (student.nik && student.nik.toLowerCase().includes(query)),
     );
   }, [students, searchQuery]);
 
@@ -66,6 +68,7 @@ export function StudentAutocomplete({
         >
           {selectedStudent ? (
             <span className="truncate">
+              {selectedStudent.nik && `[${selectedStudent.nik}] `}
               {selectedStudent.name} - Kelas {selectedStudent.class}
             </span>
           ) : (
@@ -74,10 +77,13 @@ export function StudentAutocomplete({
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+      <PopoverContent
+        className="w-[--radix-popover-trigger-width] p-0"
+        align="start"
+      >
         <Command shouldFilter={false}>
           <CommandInput
-            placeholder="Cari nama siswa atau kelas..."
+            placeholder="Cari nama siswa, NIK, atau kelas..."
             value={searchQuery}
             onValueChange={setSearchQuery}
           />
@@ -103,12 +109,15 @@ export function StudentAutocomplete({
                   <Check
                     className={cn(
                       "mr-2 h-4 w-4",
-                      value === student.id ? "opacity-100" : "opacity-0"
+                      value === student.id ? "opacity-100" : "opacity-0",
                     )}
                   />
                   <div className="flex flex-col">
                     <span className="font-medium">{student.name}</span>
                     <span className="text-xs text-muted-foreground">
+                      {student.nik && (
+                        <span className="font-mono mr-2">[{student.nik}]</span>
+                      )}
                       Kelas {student.class}
                     </span>
                   </div>

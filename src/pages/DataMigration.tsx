@@ -80,7 +80,7 @@ export default function DataMigration() {
     try {
       const { data, error } = await supabase
         .from("students")
-        .select("name, class, nis, is_active, created_at")
+        .select("name, class, nik, is_active, created_at")
         .order("name");
 
       if (error) throw error;
@@ -97,7 +97,7 @@ export default function DataMigration() {
       const exportData = data.map((s) => ({
         nama: s.name,
         kelas: s.class,
-        nis: s.nis || "",
+        nik: s.nik || "",
         status: s.is_active ? "Aktif" : "Tidak Aktif",
         tanggal_daftar: new Date(s.created_at).toLocaleDateString("id-ID"),
       }));
@@ -105,7 +105,7 @@ export default function DataMigration() {
       downloadCSV(
         exportData,
         `data_siswa_${new Date().toISOString().split("T")[0]}.csv`,
-        ["nama", "kelas", "nis", "status", "tanggal_daftar"],
+        ["nama", "kelas", "nik", "status", "tanggal_daftar"],
       );
 
       toast({
@@ -201,7 +201,7 @@ export default function DataMigration() {
           payment_method,
           notes,
           created_at,
-          student:students(name, nis, class),
+          student:students(name, nik, class),
           partner:laundry_partners(name)
         `,
         )
@@ -257,13 +257,13 @@ export default function DataMigration() {
         payment_method: string | null;
         notes: string | null;
         created_at: string;
-        student: { name: string; nis: string | null; class: string } | null;
+        student: { name: string; nik: string | null; class: string } | null;
         partner: { name: string } | null;
       }
 
       const exportData = (data as OrderExport[]).map((o) => ({
         nama_siswa: o.student?.name || "",
-        nis: o.student?.nis || "",
+        nik: o.student?.nik || "",
         kelas: o.student?.class || "",
         nama_mitra: o.partner?.name || "",
         kategori: categoryLabels[o.category] || o.category,
@@ -285,7 +285,7 @@ export default function DataMigration() {
         `data_order_${new Date().toISOString().split("T")[0]}.csv`,
         [
           "nama_siswa",
-          "nis",
+          "nik",
           "kelas",
           "nama_mitra",
           "kategori",
@@ -326,7 +326,7 @@ export default function DataMigration() {
   const downloadTemplate = (type: ImportType) => {
     const templates = {
       students: {
-        headers: ["nama", "kelas", "nis"],
+        headers: ["nama", "kelas", "nik"],
         example: [
           ["Ahmad Fauzi", "7A", "12345"],
           ["Siti Aminah", "8B", "12346"],
@@ -345,7 +345,7 @@ export default function DataMigration() {
       orders: {
         headers: [
           "nama_siswa",
-          "nis",
+          "nik",
           "nama_mitra",
           "kategori",
           "berat_kg",
@@ -646,7 +646,7 @@ export default function DataMigration() {
                       </Badge>
                     </div>
                     <div className="flex justify-between py-1">
-                      <span className="font-medium">nis</span>
+                      <span className="font-medium">nik</span>
                       <Badge variant="secondary" className="text-xs">
                         Opsional
                       </Badge>
@@ -696,7 +696,7 @@ export default function DataMigration() {
                 <CardContent>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between py-1 border-b">
-                      <span className="font-medium">nama_siswa/nis</span>
+                      <span className="font-medium">nama_siswa/nik</span>
                       <Badge variant="destructive" className="text-xs">
                         Wajib
                       </Badge>
@@ -740,7 +740,7 @@ export default function DataMigration() {
                         order
                       </li>
                       <li>
-                        • Nama siswa atau NIS harus sama persis dengan data yang
+                        • Nama siswa atau NIK harus sama persis dengan data yang
                         sudah ada
                       </li>
                       <li>

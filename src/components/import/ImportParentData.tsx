@@ -46,7 +46,7 @@ import {
 interface StudentData {
   name: string;
   class: string;
-  nis?: string;
+  nik?: string;
 }
 
 interface ParentData {
@@ -90,7 +90,7 @@ const TEMPLATE_HEADERS = [
   "telepon",
   "nama_siswa",
   "kelas",
-  "nis",
+  "nik",
 ];
 
 const TEMPLATE_EXAMPLE = [
@@ -188,7 +188,7 @@ export function ImportParentData({
     };
 
     const headerRow = parseRow(lines[0]).map((h) =>
-      h.toLowerCase().trim().replace(/\s+/g, "_")
+      h.toLowerCase().trim().replace(/\s+/g, "_"),
     );
     const rows: ParsedRow[] = [];
 
@@ -240,13 +240,13 @@ export function ImportParentData({
           errors.push(`Baris ${rowNum}: Password wajib diisi untuk ${email}`);
         } else if (password.length < 6) {
           errors.push(
-            `Baris ${rowNum}: Password minimal 6 karakter untuk ${email}`
+            `Baris ${rowNum}: Password minimal 6 karakter untuk ${email}`,
           );
         }
 
         if (!parentName) {
           errors.push(
-            `Baris ${rowNum}: Nama orang tua wajib diisi untuk ${email}`
+            `Baris ${rowNum}: Nama orang tua wajib diisi untuk ${email}`,
           );
         }
 
@@ -352,14 +352,19 @@ export function ImportParentData({
         ""
       ).trim();
       const studentClass = (row["kelas"] || row["class"] || "").trim();
-      const studentNis = (row["nis"] || row["nomor_induk"] || "").trim();
+      const studentNik = (
+        row["nik"] ||
+        row["nis"] ||
+        row["nomor_induk"] ||
+        ""
+      ).trim();
 
       if (!email || !studentName || !studentClass) return;
 
       const student: StudentData = {
         name: studentName,
         class: studentClass,
-        nis: studentNis || undefined,
+        nik: studentNik || undefined,
       };
 
       if (parentMap.has(email)) {
@@ -401,9 +406,12 @@ export function ImportParentData({
       setProgress(30);
 
       // Call the edge function
-      const { data, error } = await supabase.functions.invoke("import-parents", {
-        body: { parents: parentData },
-      });
+      const { data, error } = await supabase.functions.invoke(
+        "import-parents",
+        {
+          body: { parents: parentData },
+        },
+      );
 
       setProgress(90);
 
@@ -445,7 +453,7 @@ export function ImportParentData({
     const csvContent = [
       TEMPLATE_HEADERS.join(","),
       ...TEMPLATE_EXAMPLE.map((row) =>
-        row.map((cell) => (cell.includes(",") ? `"${cell}"` : cell)).join(",")
+        row.map((cell) => (cell.includes(",") ? `"${cell}"` : cell)).join(","),
       ),
     ].join("\n");
 
@@ -474,7 +482,7 @@ export function ImportParentData({
 
   // Count unique parents and students
   const uniqueParents = new Set(
-    parsedData.map((row) => (row["email"] || "").trim().toLowerCase())
+    parsedData.map((row) => (row["email"] || "").trim().toLowerCase()),
   ).size;
 
   return (
@@ -513,7 +521,7 @@ export function ImportParentData({
                     <li>Email akan otomatis dikonfirmasi tanpa verifikasi</li>
                     <li>
                       Format kolom: email, password, nama_orangtua, telepon,
-                      nama_siswa, kelas, nis
+                      nama_siswa, kelas, nik
                     </li>
                   </ul>
                 </div>
@@ -649,7 +657,9 @@ export function ImportParentData({
                               key={header}
                               className="max-w-[150px] truncate"
                             >
-                              {header === "password" ? "••••••" : row[header] || "-"}
+                              {header === "password"
+                                ? "••••••"
+                                : row[header] || "-"}
                             </TableCell>
                           ))}
                         </TableRow>

@@ -9,6 +9,7 @@ import Dashboard from "./pages/Dashboard";
 import Students from "./pages/Students";
 import Orders from "./pages/Orders";
 import NewOrder from "./pages/NewOrder";
+import BulkOrderEntry from "./pages/BulkOrderEntry";
 import Bills from "./pages/Bills";
 import Partners from "./pages/Partners";
 import Reports from "./pages/Reports";
@@ -83,6 +84,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute allowedRoles={["staff"]}>
             <NewOrder />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/orders/bulk"
+        element={
+          <ProtectedRoute allowedRoles={["staff"]}>
+            <BulkOrderEntry />
           </ProtectedRoute>
         }
       />

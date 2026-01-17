@@ -49,6 +49,12 @@ const navItems: NavItem[] = [
     roles: ["staff"],
   },
   {
+    label: "Input Bulk",
+    href: "/orders/bulk",
+    icon: <ClipboardList className="h-5 w-5" />,
+    roles: ["staff"],
+  },
+  {
     label: "Daftar Order",
     href: "/orders",
     icon: <ClipboardList className="h-5 w-5" />,

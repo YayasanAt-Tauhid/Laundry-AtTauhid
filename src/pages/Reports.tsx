@@ -94,6 +94,7 @@ interface BillReportOrder {
   vendor_share: number;
   yayasan_share: number;
   status: string;
+  student_nik: string;
   student_name: string;
   student_class: string;
   partner_name: string;
@@ -218,7 +219,7 @@ export default function Reports() {
           vendor_share,
           yayasan_share,
           status,
-          students (name, class),
+          students (nik, name, class),
           laundry_partners (id, name)
         `,
         )
@@ -243,6 +244,7 @@ export default function Reports() {
 
       if (error) throw error;
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const orders: BillReportOrder[] = (data || []).map((order: any) => ({
         id: order.id,
         laundry_date: order.laundry_date,
@@ -253,6 +255,7 @@ export default function Reports() {
         vendor_share: order.vendor_share || 0,
         yayasan_share: order.yayasan_share || 0,
         status: order.status,
+        student_nik: order.students?.nik || "-",
         student_name: order.students?.name || "-",
         student_class: order.students?.class || "-",
         partner_name: order.laundry_partners?.name || "-",

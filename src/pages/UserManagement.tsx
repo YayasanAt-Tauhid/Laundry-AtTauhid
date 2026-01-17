@@ -59,7 +59,7 @@ interface ParentUser {
     id: string;
     name: string;
     class: string;
-    nis: string | null;
+    nik: string | null;
     is_active: boolean;
   }[];
 }
@@ -100,14 +100,14 @@ export default function UserManagement() {
           phone,
           created_at
         `,
-          { count: "exact" }
+          { count: "exact" },
         )
         .order("created_at", { ascending: false })
         .range(from, to);
 
       if (searchTerm) {
         query = query.or(
-          `full_name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%,phone.ilike.%${searchTerm}%`
+          `full_name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%,phone.ilike.%${searchTerm}%`,
         );
       }
 
@@ -125,7 +125,7 @@ export default function UserManagement() {
 
       const parentUserIds = new Set(rolesData?.map((r) => r.user_id) || []);
       const parentProfiles = profilesData?.filter((p) =>
-        parentUserIds.has(p.user_id)
+        parentUserIds.has(p.user_id),
       );
 
       // Fetch students for each parent
@@ -134,7 +134,7 @@ export default function UserManagement() {
       for (const profile of parentProfiles || []) {
         const { data: studentsData } = await supabase
           .from("students")
-          .select("id, name, class, nis, is_active")
+          .select("id, name, class, nik, is_active")
           .eq("parent_id", profile.user_id)
           .order("name");
 
@@ -320,7 +320,9 @@ export default function UserManagement() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => setCurrentPage((p) => Math.max(0, p - 1))}
+                        onClick={() =>
+                          setCurrentPage((p) => Math.max(0, p - 1))
+                        }
                         disabled={currentPage === 0 || loading}
                       >
                         <ChevronLeft className="h-4 w-4 mr-1" />
@@ -430,7 +432,7 @@ export default function UserManagement() {
                                 <p className="font-medium">{student.name}</p>
                                 <p className="text-sm text-muted-foreground">
                                   Kelas {student.class}
-                                  {student.nis && ` • NIS: ${student.nis}`}
+                                  {student.nik && ` • NIK: ${student.nik}`}
                                 </p>
                               </div>
                             </div>

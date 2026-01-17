@@ -45,6 +45,7 @@ interface Bill {
   students: {
     name: string;
     class: string;
+    nik: string;
   };
   laundry_partners: {
     name: string;
@@ -95,7 +96,7 @@ export default function Bills() {
           status,
           created_at,
           laundry_date,
-          students (name, class),
+          students (name, class, nik),
           laundry_partners (name)
         `,
         )
@@ -127,7 +128,7 @@ export default function Bills() {
           status,
           created_at,
           laundry_date,
-          students (name, class),
+          students (name, class, nik),
           laundry_partners (name)
         `,
           { count: "exact" },
@@ -457,6 +458,9 @@ export default function Bills() {
                               />
                               <div className="space-y-2">
                                 <div className="flex items-center gap-2">
+                                  <span className="font-mono text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                                    {bill.students?.nik}
+                                  </span>
                                   <h3 className="font-semibold">
                                     {bill.students?.name}
                                   </h3>
@@ -619,9 +623,14 @@ export default function Bills() {
                               className="border-b border-border/50"
                             >
                               <td className="py-4 px-6">
-                                <p className="font-medium">
-                                  {bill.students?.name}
-                                </p>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                                    {bill.students?.nik}
+                                  </span>
+                                  <p className="font-medium">
+                                    {bill.students?.name}
+                                  </p>
+                                </div>
                                 <p className="text-sm text-muted-foreground">
                                   Kelas {bill.students?.class}
                                 </p>

@@ -30,6 +30,7 @@ interface Student {
   id: string;
   name: string;
   class: string;
+  nik: string;
   parent_id: string;
 }
 
@@ -79,7 +80,7 @@ export default function NewOrder() {
       // Fetch students
       const { data: studentsData, error: studentsError } = await supabase
         .from("students")
-        .select("id, name, class, parent_id")
+        .select("id, name, class, nik, parent_id")
         .eq("is_active", true)
         .order("name");
 
@@ -230,12 +231,13 @@ export default function NewOrder() {
       });
 
       navigate("/orders");
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error creating order:", error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: error.message || "Gagal membuat order",
+        description:
+          error instanceof Error ? error.message : "Gagal membuat order",
       });
     } finally {
       setSaving(false);

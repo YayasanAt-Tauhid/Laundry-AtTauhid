@@ -288,8 +288,9 @@ export type Database = {
           id: string;
           is_active: boolean;
           name: string;
-          nis: string | null;
+          nik: string;
           parent_id: string;
+          student_code: string;
           updated_at: string;
         };
         Insert: {
@@ -298,8 +299,9 @@ export type Database = {
           id?: string;
           is_active?: boolean;
           name: string;
-          nis?: string | null;
+          nik: string;
           parent_id: string;
+          student_code?: string;
           updated_at?: string;
         };
         Update: {
@@ -308,8 +310,9 @@ export type Database = {
           id?: string;
           is_active?: boolean;
           name?: string;
-          nis?: string | null;
+          nik?: string;
           parent_id?: string;
+          student_code?: string;
           updated_at?: string;
         };
         Relationships: [];
@@ -551,6 +554,63 @@ export type Database = {
           p_round_down?: boolean;
         };
         Returns: number;
+      };
+      check_nik_available: {
+        Args: {
+          p_nik: string;
+          p_exclude_id?: string | null;
+        };
+        Returns: {
+          available: boolean;
+          message: string;
+          existing_student?: {
+            id: string;
+            name: string;
+            class: string;
+            student_code: string;
+            is_active: boolean;
+          } | null;
+        };
+      };
+      find_potential_duplicate_students: {
+        Args: {
+          p_name: string;
+          p_class?: string | null;
+          p_nik?: string | null;
+          p_exclude_id?: string | null;
+        };
+        Returns: {
+          id: string;
+          name: string;
+          class: string;
+          nik: string;
+          student_code: string;
+          parent_id: string;
+          is_active: boolean;
+          match_type: string;
+          similarity_score: number;
+        }[];
+      };
+      merge_duplicate_students: {
+        Args: {
+          p_keep_id: string;
+          p_merge_ids: string[];
+        };
+        Returns: {
+          success: boolean;
+          message?: string;
+          error?: string;
+          details?: {
+            keep_student: {
+              id: string;
+              name: string;
+              student_code: string;
+            };
+            orders_updated: number;
+            wadiah_balance_transferred: number;
+            students_deactivated: number;
+          };
+        };
       };
     };
     Enums: {

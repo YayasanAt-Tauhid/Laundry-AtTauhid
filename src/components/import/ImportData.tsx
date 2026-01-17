@@ -49,7 +49,7 @@ import {
   Info,
 } from "lucide-react";
 
-type ImportType = "students" | "partners" | "orders";
+type ImportType = "students" | "students_wadiah" | "partners" | "orders";
 
 interface ImportResult {
   success: number;
@@ -71,7 +71,7 @@ interface ImportDataProps {
 interface StudentLookup {
   id: string;
   name: string;
-  nis: string | null;
+  nik: string | null;
   class: string;
 }
 
@@ -85,13 +85,23 @@ const IMPORT_TEMPLATES: Record<
   { headers: string[]; example: string[][]; description: string }
 > = {
   students: {
-    headers: ["nama", "kelas", "nis"],
+    headers: ["nik", "nama", "kelas"],
     example: [
-      ["Ahmad Fauzi", "7A", "12345"],
-      ["Siti Aminah", "8B", "12346"],
-      ["Muhammad Rizki", "9C", "12347"],
+      ["12345", "Ahmad Fauzi", "7A"],
+      ["12346", "Siti Aminah", "8B"],
+      ["12347", "Muhammad Rizki", "9C"],
     ],
-    description: "nama, kelas, nis (opsional)",
+    description: "nik (wajib, unik), nama, kelas",
+  },
+  students_wadiah: {
+    headers: ["nik", "nama", "kelas", "saldo_wadiah"],
+    example: [
+      ["12345", "Ahmad Fauzi", "7A", "50000"],
+      ["12346", "Siti Aminah", "8B", "125000"],
+      ["12347", "Muhammad Rizki", "9C", "0"],
+    ],
+    description:
+      "nik (wajib), nama, kelas, saldo_wadiah - Siswa yg sudah ada akan di-update saldonya",
   },
   partners: {
     headers: ["nama", "telepon", "alamat"],
@@ -104,7 +114,7 @@ const IMPORT_TEMPLATES: Record<
   orders: {
     headers: [
       "nama_siswa",
-      "nis",
+      "nik",
       "nama_mitra",
       "kategori",
       "berat_kg",
@@ -157,7 +167,7 @@ const IMPORT_TEMPLATES: Record<
       ],
     ],
     description:
-      "nama_siswa/nis, nama_mitra, kategori, berat/jumlah, tanggal, status",
+      "nama_siswa/nik, nama_mitra, kategori, berat/jumlah, tanggal, status",
   },
 };
 
@@ -226,9 +236,9 @@ export function ImportData({
   const [partners, setPartners] = useState<PartnerLookup[]>([]);
   const [loadingLookups, setLoadingLookups] = useState(false);
 
-  // Fetch students and partners for order import
+  // Fetch students and partners for order import or students_wadiah
   useEffect(() => {
-    if (open && importType === "orders") {
+    if (open && (importType === "orders" || importType === "students_wadiah")) {
       fetchLookupData();
     }
   }, [open, importType]);
@@ -239,7 +249,7 @@ export function ImportData({
       const [studentsRes, partnersRes] = await Promise.all([
         supabase
           .from("students")
-          .select("id, name, nis, class")
+          .select("id, name, nik, class")
           .eq("is_active", true),
         supabase
           .from("laundry_partners")
@@ -394,12 +404,12 @@ export function ImportData({
     )
       .trim()
       .toLowerCase();
-    const nis = (row["nis"] || row["nomor_induk"] || "").trim();
+    const nik = (row["nik"] || row["nis"] || row["nomor_induk"] || "").trim();
 
-    // Try to find by NIS first (more accurate)
-    if (nis) {
-      const byNis = students.find((s) => s.nis === nis);
-      if (byNis) return byNis;
+    // Try to find by NIK first (more accurate)
+    if (nik) {
+      const byNik = students.find((s) => s.nik === nik);
+      if (byNik) return byNik;
     }
 
     // Then try by name (case-insensitive)
@@ -525,14 +535,65 @@ export function ImportData({
     const errors: string[] = [];
 
     if (importType === "students") {
+      // For regular students import, all fields are required
+      const nikSet = new Set<string>();
       rows.forEach((row, index) => {
         const nama = row["nama"] || row["name"] || "";
         const kelas = row["kelas"] || row["class"] || "";
+        const nik = (
+          row["nik"] ||
+          row["nis"] ||
+          row["nomor_induk"] ||
+          ""
+        ).trim();
+
+        if (!nik) {
+          errors.push(`Baris ${index + 2}: NIK wajib diisi`);
+        } else if (nikSet.has(nik)) {
+          errors.push(`Baris ${index + 2}: NIK "${nik}" duplikat dalam file`);
+        } else {
+          nikSet.add(nik);
+        }
         if (!nama.trim()) {
           errors.push(`Baris ${index + 2}: Nama siswa tidak boleh kosong`);
         }
         if (!kelas.trim()) {
           errors.push(`Baris ${index + 2}: Kelas tidak boleh kosong`);
+        }
+      });
+    } else if (importType === "students_wadiah") {
+      // For students_wadiah import, only NIK is required
+      // nama/kelas only required for NEW students (checked during import)
+      const nikSet = new Set<string>();
+      rows.forEach((row, index) => {
+        const nik = (
+          row["nik"] ||
+          row["nis"] ||
+          row["nomor_induk"] ||
+          ""
+        ).trim();
+
+        if (!nik) {
+          errors.push(`Baris ${index + 2}: NIK wajib diisi`);
+        } else if (nikSet.has(nik)) {
+          errors.push(`Baris ${index + 2}: NIK "${nik}" duplikat dalam file`);
+        } else {
+          nikSet.add(nik);
+        }
+
+        // Validate wadiah balance
+        const saldoStr = (
+          row["saldo_wadiah"] ||
+          row["saldo"] ||
+          row["wadiah"] ||
+          row["balance"] ||
+          "0"
+        ).trim();
+        const saldo = parseFloat(saldoStr.replace(/[^0-9.-]/g, ""));
+        if (isNaN(saldo) || saldo < 0) {
+          errors.push(
+            `Baris ${index + 2}: Saldo wadiah tidak valid (harus angka >= 0)`,
+          );
         }
       });
     } else if (importType === "partners") {
@@ -556,7 +617,7 @@ export function ImportData({
         const category = parseCategory(row);
 
         if (!student) {
-          const nama = row["nama_siswa"] || row["nama"] || row["nis"] || "";
+          const nama = row["nama_siswa"] || row["nama"] || row["nik"] || "";
           errors.push(
             `Baris ${index + 2}: Siswa "${nama}" tidak ditemukan di database`,
           );
@@ -623,17 +684,46 @@ export function ImportData({
 
     try {
       if (importType === "students") {
-        const studentsToInsert = parsedData.map((row) => ({
+        const studentsToInsert = parsedData.map((row, index) => ({
           parent_id: user.id,
           name: (row["nama"] || row["name"] || "").trim(),
           class: (row["kelas"] || row["class"] || "").trim(),
-          nis: (row["nis"] || row["nomor_induk"] || "").trim() || null,
+          nik: (row["nik"] || row["nis"] || row["nomor_induk"] || "").trim(),
           is_active: true,
+          _rowIndex: index + 1, // Track row for error reporting
         }));
+
+        // Validate NIK uniqueness within the import batch
+        const nikSet = new Set<string>();
+        const duplicateNik: string[] = [];
+        studentsToInsert.forEach((s) => {
+          if (s.nik) {
+            if (nikSet.has(s.nik)) {
+              duplicateNik.push(s.nik);
+            }
+            nikSet.add(s.nik);
+          }
+        });
+
+        if (duplicateNik.length > 0) {
+          results.failed = studentsToInsert.length;
+          results.errors.push(
+            `NIK duplikat dalam file: ${duplicateNik.slice(0, 5).join(", ")}${duplicateNik.length > 5 ? ` dan ${duplicateNik.length - 5} lainnya` : ""}`,
+          );
+          setResult(results);
+          setImporting(false);
+          return;
+        }
 
         for (let i = 0; i < studentsToInsert.length; i += batchSize) {
           const batch = studentsToInsert.slice(i, i + batchSize);
-          const validBatch = batch.filter((s) => s.name && s.class);
+          // NIK is now required - filter for name, class, AND nik
+          const validBatch = batch
+            .filter((s) => s.name && s.class && s.nik)
+            .map(({ _rowIndex, ...student }) => student); // Remove _rowIndex before insert
+          const invalidCount = batch.filter(
+            (s) => !s.name || !s.class || !s.nik,
+          ).length;
 
           if (validBatch.length > 0) {
             const { error, data } = await supabase
@@ -643,16 +733,235 @@ export function ImportData({
 
             if (error) {
               results.failed += validBatch.length;
-              results.errors.push(
-                `Batch ${Math.floor(i / batchSize) + 1}: ${error.message}`,
-              );
+              // Handle unique constraint violation for NIK
+              if (error.code === "23505" && error.message.includes("nik")) {
+                results.errors.push(
+                  `Batch ${Math.floor(i / batchSize) + 1}: NIK sudah terdaftar di database`,
+                );
+              } else {
+                results.errors.push(
+                  `Batch ${Math.floor(i / batchSize) + 1}: ${error.message}`,
+                );
+              }
             } else {
               results.success += data?.length || 0;
             }
           }
 
-          results.failed += batch.length - validBatch.length;
+          // Track invalid rows (missing name, class, or nik)
+          if (invalidCount > 0) {
+            results.errors.push(
+              `${invalidCount} baris dilewati karena nama, kelas, atau NIK kosong`,
+            );
+          }
+          results.failed += invalidCount;
           setProgress(Math.round(((i + batch.length) / totalRows) * 100));
+        }
+      } else if (importType === "students_wadiah") {
+        // Import/Update students with wadiah balance (for data migration)
+        // This supports UPSERT - will update existing students' wadiah balance
+        const studentsData = parsedData.map((row, index) => {
+          const saldoStr = (
+            row["saldo_wadiah"] ||
+            row["saldo"] ||
+            row["wadiah"] ||
+            row["balance"] ||
+            "0"
+          ).trim();
+          const saldoWadiah =
+            parseFloat(saldoStr.replace(/[^0-9.-]/g, "")) || 0;
+
+          return {
+            parent_id: user.id,
+            name: (row["nama"] || row["name"] || "").trim(),
+            class: (row["kelas"] || row["class"] || "").trim(),
+            nik: (row["nik"] || row["nis"] || row["nomor_induk"] || "").trim(),
+            is_active: true,
+            _rowIndex: index + 1,
+            _saldoWadiah: saldoWadiah,
+          };
+        });
+
+        // Validate NIK uniqueness within the import batch
+        const nikSet = new Set<string>();
+        const duplicateNik: string[] = [];
+        studentsData.forEach((s) => {
+          if (s.nik) {
+            if (nikSet.has(s.nik)) {
+              duplicateNik.push(s.nik);
+            }
+            nikSet.add(s.nik);
+          }
+        });
+
+        if (duplicateNik.length > 0) {
+          results.failed = studentsData.length;
+          results.errors.push(
+            `NIK duplikat dalam file: ${duplicateNik.slice(0, 5).join(", ")}${duplicateNik.length > 5 ? ` dan ${duplicateNik.length - 5} lainnya` : ""}`,
+          );
+          setResult(results);
+          setImporting(false);
+          return;
+        }
+
+        // Process one by one to handle wadiah balance (supports existing students)
+        for (let i = 0; i < studentsData.length; i++) {
+          const studentData = studentsData[i];
+
+          if (!studentData.nik) {
+            results.failed++;
+            results.errors.push(
+              `Baris ${studentData._rowIndex + 1}: NIK tidak boleh kosong`,
+            );
+            setProgress(Math.round(((i + 1) / totalRows) * 100));
+            continue;
+          }
+
+          try {
+            let studentId: string | null = null;
+            let isNewStudent = false;
+
+            // Check if student already exists by NIK
+            const { data: existingStudent } = await supabase
+              .from("students")
+              .select("id, name, class")
+              .eq("nik", studentData.nik)
+              .single();
+
+            if (existingStudent) {
+              // Student exists - use existing ID
+              studentId = existingStudent.id;
+              isNewStudent = false;
+            } else {
+              // Student doesn't exist - create new
+              if (!studentData.name || !studentData.class) {
+                results.failed++;
+                results.errors.push(
+                  `Baris ${studentData._rowIndex + 1}: Siswa baru harus memiliki nama dan kelas`,
+                );
+                setProgress(Math.round(((i + 1) / totalRows) * 100));
+                continue;
+              }
+
+              const { data: insertedStudent, error: studentError } =
+                await supabase
+                  .from("students")
+                  .insert({
+                    parent_id: studentData.parent_id,
+                    name: studentData.name,
+                    class: studentData.class,
+                    nik: studentData.nik,
+                    is_active: studentData.is_active,
+                  })
+                  .select("id")
+                  .single();
+
+              if (studentError) {
+                results.failed++;
+                results.errors.push(
+                  `Baris ${studentData._rowIndex + 1}: ${studentError.message}`,
+                );
+                setProgress(Math.round(((i + 1) / totalRows) * 100));
+                continue;
+              }
+
+              studentId = insertedStudent?.id || null;
+              isNewStudent = true;
+            }
+
+            if (!studentId) {
+              results.failed++;
+              results.errors.push(
+                `Baris ${studentData._rowIndex + 1}: Gagal mendapatkan ID siswa`,
+              );
+              setProgress(Math.round(((i + 1) / totalRows) * 100));
+              continue;
+            }
+
+            // Handle wadiah balance
+            if (studentData._saldoWadiah > 0) {
+              // Check if wadiah balance record exists
+              const { data: existingBalance } = await supabase
+                .from("student_wadiah_balance")
+                .select("id, balance, total_deposited")
+                .eq("student_id", studentId)
+                .single();
+
+              if (existingBalance) {
+                // Update existing balance - ADD to current balance
+                const newBalance =
+                  existingBalance.balance + studentData._saldoWadiah;
+                const newTotalDeposited =
+                  existingBalance.total_deposited + studentData._saldoWadiah;
+
+                const { error: updateError } = await supabase
+                  .from("student_wadiah_balance")
+                  .update({
+                    balance: newBalance,
+                    total_deposited: newTotalDeposited,
+                    last_transaction_at: new Date().toISOString(),
+                  })
+                  .eq("student_id", studentId);
+
+                if (updateError) {
+                  results.errors.push(
+                    `Baris ${studentData._rowIndex + 1}: Gagal update saldo: ${updateError.message}`,
+                  );
+                } else {
+                  // Record transaction for audit
+                  await supabase.from("wadiah_transactions").insert({
+                    student_id: studentId,
+                    transaction_type: "deposit",
+                    amount: studentData._saldoWadiah,
+                    balance_before: existingBalance.balance,
+                    balance_after: newBalance,
+                    notes: `Migrasi data - tambahan saldo (${new Date().toLocaleDateString("id-ID")})`,
+                    customer_consent: true,
+                  });
+                }
+              } else {
+                // Create new wadiah balance record
+                const { error: wadiahBalanceError } = await supabase
+                  .from("student_wadiah_balance")
+                  .insert({
+                    student_id: studentId,
+                    balance: studentData._saldoWadiah,
+                    total_deposited: studentData._saldoWadiah,
+                    total_used: 0,
+                    total_sedekah: 0,
+                  });
+
+                if (wadiahBalanceError) {
+                  console.error("Wadiah balance error:", wadiahBalanceError);
+                  results.errors.push(
+                    `Baris ${studentData._rowIndex + 1}: ${isNewStudent ? "Siswa berhasil dibuat" : "Siswa ditemukan"}, tapi gagal set saldo: ${wadiahBalanceError.message}`,
+                  );
+                } else {
+                  // Record initial transaction for audit
+                  await supabase.from("wadiah_transactions").insert({
+                    student_id: studentId,
+                    transaction_type: "deposit",
+                    amount: studentData._saldoWadiah,
+                    balance_before: 0,
+                    balance_after: studentData._saldoWadiah,
+                    notes: `Saldo awal migrasi data (${new Date().toLocaleDateString("id-ID")})`,
+                    customer_consent: true,
+                  });
+                }
+              }
+            }
+
+            results.success++;
+          } catch (err: unknown) {
+            results.failed++;
+            const errorMessage =
+              err instanceof Error ? err.message : "Unknown error";
+            results.errors.push(
+              `Baris ${studentData._rowIndex + 1}: ${errorMessage}`,
+            );
+          }
+
+          setProgress(Math.round(((i + 1) / totalRows) * 100));
         }
       } else if (importType === "partners") {
         const partnersToInsert = parsedData.map((row) => ({
@@ -929,6 +1238,11 @@ export function ImportData({
                           👨‍🎓 Data Siswa/Santri
                         </span>
                       </SelectItem>
+                      <SelectItem value="students_wadiah">
+                        <span className="flex items-center gap-2">
+                          💰 Data Siswa + Saldo Wadiah
+                        </span>
+                      </SelectItem>
                       <SelectItem value="partners">
                         <span className="flex items-center gap-2">
                           🏪 Data Mitra Laundry
@@ -972,6 +1286,12 @@ export function ImportData({
                       <p className="text-xs text-muted-foreground mt-1">
                         Data tersedia: {students.length} siswa,{" "}
                         {partners.length} mitra
+                      </p>
+                    )}
+                    {importType === "students_wadiah" && (
+                      <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
+                        ⚠️ Siswa yang sudah ada akan ditambahkan saldo
+                        wadiah-nya. Siswa baru akan dibuat dengan saldo wadiah.
                       </p>
                     )}
                   </div>

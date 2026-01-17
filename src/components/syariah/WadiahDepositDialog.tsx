@@ -48,6 +48,7 @@ interface StudentOption {
   id: string;
   name: string;
   class: string;
+  nik: string;
 }
 
 interface WadiahDepositDialogProps {
@@ -115,13 +116,14 @@ export function WadiahDepositDialog({
       try {
         let studentQuery = supabase
           .from("students")
-          .select("id, name, class")
+          .select("id, name, class, nik")
           .order("name", { ascending: true })
           .limit(50);
 
         if (query.trim()) {
+          // Search by name, class, or NIK
           studentQuery = studentQuery.or(
-            `name.ilike.%${query}%,class.ilike.%${query}%`,
+            `name.ilike.%${query}%,class.ilike.%${query}%,nik.ilike.%${query}%`,
           );
         }
 
@@ -530,6 +532,9 @@ export function WadiahDepositDialog({
                     {selectedStudent ? (
                       <span className="flex items-center gap-2">
                         <User className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-mono text-xs text-muted-foreground">
+                          [{selectedStudent.nik}]
+                        </span>
                         {selectedStudent.name}
                         <Badge variant="secondary" className="ml-1">
                           {selectedStudent.class}
@@ -547,7 +552,7 @@ export function WadiahDepositDialog({
                 <PopoverContent className="w-[400px] p-0" align="start">
                   <Command>
                     <CommandInput
-                      placeholder="Ketik nama atau kelas siswa..."
+                      placeholder="Ketik nama, NIK, atau kelas siswa..."
                       value={studentSearchQuery}
                       onValueChange={setStudentSearchQuery}
                     />
@@ -581,6 +586,9 @@ export function WadiahDepositDialog({
                                 />
                                 <div className="flex items-center gap-2 flex-1">
                                   <User className="h-4 w-4 text-muted-foreground" />
+                                  <span className="font-mono text-xs text-muted-foreground">
+                                    [{student.nik}]
+                                  </span>
                                   <span>{student.name}</span>
                                   <Badge variant="outline" className="ml-auto">
                                     {student.class}

@@ -61,6 +61,7 @@ interface PaymentRecord {
     id: string;
     name: string;
     class: string;
+    nik: string;
   };
   laundry_partners: {
     name: string;
@@ -80,6 +81,7 @@ interface WadiahDepositRecord {
     id: string;
     name: string;
     class: string;
+    nik?: string;
   };
 }
 
@@ -255,7 +257,7 @@ export default function CashierReports() {
                   paid_amount,
                   rounding_applied,
                   paid_by,
-                  students!inner (id, name, class),
+                  students!inner (id, name, class, nik),
                   laundry_partners (name)
                 `,
           { count: "exact" },
@@ -283,7 +285,7 @@ export default function CashierReports() {
 
       if (searchQuery) {
         query = query.or(
-          `name.ilike.%${searchQuery}%,class.ilike.%${searchQuery}%`,
+          `name.ilike.%${searchQuery}%,class.ilike.%${searchQuery}%,nik.ilike.%${searchQuery}%`,
           { foreignTable: "students" },
         );
       }
@@ -292,6 +294,7 @@ export default function CashierReports() {
 
       if (error) throw error;
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const paymentsData = (data || []) as any[];
       setPayments(paymentsData);
       setTotalCount(count || 0);
@@ -355,38 +358,44 @@ export default function CashierReports() {
           byClass: {},
         };
 
-        (summaryRows || []).forEach((payment: any) => {
-          currentSummary.totalAmount += payment.total_price;
+        (summaryRows || []).forEach((payment: Record<string, unknown>) => {
+          const totalPrice = (payment.total_price as number) || 0;
+          const paymentMethod = payment.payment_method as string;
+          const wadiahUsed = (payment.wadiah_used as number) || 0;
+          const category = payment.category as string;
+          const students = payment.students as { class?: string } | null;
+
+          currentSummary.totalAmount += totalPrice;
 
           // By payment method
-          if (payment.payment_method === "cash") {
+          if (paymentMethod === "cash") {
             currentSummary.cashTransactions++;
-            currentSummary.cashAmount += payment.total_price;
+            currentSummary.cashAmount += totalPrice;
           } else {
             currentSummary.transferTransactions++;
-            currentSummary.transferAmount += payment.total_price;
+            currentSummary.transferAmount += totalPrice;
           }
 
           // Wadiah used tracking
-          if (payment.wadiah_used) {
-            currentSummary.wadiahUsedTotal += payment.wadiah_used;
+          if (wadiahUsed) {
+            currentSummary.wadiahUsedTotal += wadiahUsed;
           }
 
           // By category
-          const cat = payment.category;
+          const cat = category;
           if (!currentSummary.byCategory[cat]) {
             currentSummary.byCategory[cat] = { count: 0, amount: 0 };
           }
           currentSummary.byCategory[cat].count++;
-          currentSummary.byCategory[cat].amount += payment.total_price;
+          currentSummary.byCategory[cat].amount += totalPrice;
 
           // By class
-          const cls = payment.students?.class || "Unknown";
+          const cls = students?.class || "Unknown";
           if (!currentSummary.byClass[cls]) {
             currentSummary.byClass[cls] = { count: 0, amount: 0 };
           }
           currentSummary.byClass[cls].count++;
-          currentSummary.byClass[cls].amount += payment.total_price;
+          currentSummary.byClass[cls].amount += totalPrice;
         });
 
         // 3. Fetch Wadiah Transactions for deposit total (change_deposit AND manual deposit)
@@ -402,7 +411,7 @@ export default function CashierReports() {
             notes,
             balance_before,
             balance_after,
-            students (id, name, class)
+            students (id, name, class, nik)
           `,
           )
           .in("transaction_type", ["change_deposit", "deposit"])
@@ -420,7 +429,7 @@ export default function CashierReports() {
           const manualDeposits: WadiahDepositRecord[] = [];
 
           // Separate change_deposit and manual deposit
-          wadiahData.forEach((tx: WadiahDepositRecord) => {
+          wadiahData.forEach((tx) => {
             if (tx.transaction_type === "change_deposit") {
               currentSummary.wadiahDepositTotal += tx.amount || 0;
             } else if (tx.transaction_type === "deposit") {
@@ -1547,7 +1556,7 @@ export default function CashierReports() {
                   <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                      placeholder="Cari nama siswa atau kelas..."
+                      placeholder="Cari NIK, nama siswa, atau kelas..."
                       value={searchQuery}
                       onChange={(e) => {
                         setSearchQuery(e.target.value);
@@ -1656,9 +1665,14 @@ export default function CashierReports() {
                                 <div className="flex items-center gap-1">
                                   <User className="h-3 w-3 text-muted-foreground" />
                                   <div>
-                                    <p className="text-sm font-medium">
-                                      {payment.students?.name || "-"}
-                                    </p>
+                                    <div className="flex items-center gap-1">
+                                      <span className="font-mono text-xs text-muted-foreground bg-muted px-1 py-0.5 rounded">
+                                        {payment.students?.nik || "-"}
+                                      </span>
+                                      <p className="text-sm font-medium">
+                                        {payment.students?.name || "-"}
+                                      </p>
+                                    </div>
                                     <p className="text-xs text-muted-foreground">
                                       {payment.students?.class || "-"}
                                     </p>

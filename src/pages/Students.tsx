@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Dialog,
   DialogContent,
@@ -34,6 +36,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Upload,
+  AlertTriangle,
+  CheckCircle2,
+  XCircle,
+  Copy,
 } from "lucide-react";
 import { ImportData } from "@/components/import/ImportData";
 import { ImportParentData } from "@/components/import/ImportParentData";
@@ -44,9 +50,32 @@ interface Student {
   id: string;
   name: string;
   class: string;
-  nis: string | null;
+  nik: string;
+  student_code: string;
   is_active: boolean;
   created_at: string;
+}
+
+interface PotentialDuplicate {
+  id: string;
+  name: string;
+  class: string;
+  nik: string;
+  student_code: string;
+  match_type: string;
+  similarity_score: number;
+}
+
+interface NikCheckResult {
+  available: boolean;
+  message: string;
+  existing_student?: {
+    id: string;
+    name: string;
+    class: string;
+    student_code: string;
+    is_active: boolean;
+  };
 }
 
 export default function Students() {
@@ -60,7 +89,7 @@ export default function Students() {
   const [formData, setFormData] = useState({
     name: "",
     class: "",
-    nis: "",
+    nik: "",
   });
   const [saving, setSaving] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
@@ -68,9 +97,143 @@ export default function Students() {
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importParentDialogOpen, setImportParentDialogOpen] = useState(false);
 
+  // NIK validation states
+  const [nikChecking, setNikChecking] = useState(false);
+  const [nikAvailable, setNikAvailable] = useState<boolean | null>(null);
+  const [nikError, setNikError] = useState<string | null>(null);
+  const [existingNikStudent, setExistingNikStudent] = useState<
+    NikCheckResult["existing_student"] | null
+  >(null);
+
+  // Duplicate detection states
+  const [duplicateWarningOpen, setDuplicateWarningOpen] = useState(false);
+  const [potentialDuplicates, setPotentialDuplicates] = useState<
+    PotentialDuplicate[]
+  >([]);
+  const [pendingSubmit, setPendingSubmit] = useState(false);
+
+  // Track if component is mounted
+  const isMounted = useRef(true);
+
   useEffect(() => {
-    fetchStudents();
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (user) {
+      fetchStudents();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, currentPage]);
+
+  // Check NIK availability with debounce
+  const checkNikAvailability = useCallback(
+    async (nik: string, excludeId?: string) => {
+      if (!nik || nik.trim().length < 3) {
+        setNikAvailable(null);
+        setNikError(null);
+        setExistingNikStudent(null);
+        return;
+      }
+
+      setNikChecking(true);
+      try {
+        // Use type assertion since RPC types may not be generated yet
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { data, error } = await (supabase.rpc as any)(
+          "check_nik_available",
+          {
+            p_nik: nik.trim(),
+            p_exclude_id: excludeId || null,
+          },
+        );
+
+        if (error) throw error;
+
+        const result = data as unknown as NikCheckResult;
+        setNikAvailable(result.available);
+        setNikError(result.available ? null : result.message);
+        setExistingNikStudent(result.existing_student || null);
+      } catch (error) {
+        console.error("Error checking NIK:", error);
+        // Fallback to simple query if RPC not available yet
+        const { data: existing } = await supabase
+          .from("students")
+          .select("id, name, class")
+          .eq("nik", nik.trim())
+          .neq("id", excludeId || "")
+          .maybeSingle();
+
+        if (existing) {
+          setNikAvailable(false);
+          setNikError(
+            `NIK sudah digunakan oleh ${existing.name} (${existing.class})`,
+          );
+        } else {
+          setNikAvailable(true);
+          setNikError(null);
+        }
+      } finally {
+        setNikChecking(false);
+      }
+    },
+    [],
+  );
+
+  // Debounced NIK check
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (formData.nik) {
+        checkNikAvailability(formData.nik, selectedStudent?.id);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [formData.nik, selectedStudent?.id, checkNikAvailability]);
+
+  // Check for potential duplicates
+  const checkDuplicates = async (): Promise<PotentialDuplicate[]> => {
+    if (!formData.name || formData.name.trim().length < 2) return [];
+
+    try {
+      // Use type assertion since RPC types may not be generated yet
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase.rpc as any)(
+        "find_potential_duplicate_students",
+        {
+          p_name: formData.name.trim(),
+          p_class: formData.class.trim() || null,
+          p_nik: formData.nik.trim() || null,
+          p_exclude_id: selectedStudent?.id || null,
+        },
+      );
+
+      if (error) {
+        console.error("Error checking duplicates:", error);
+        // Fallback to simple query
+        const { data: similar } = await supabase
+          .from("students")
+          .select("id, name, class, nik, student_code")
+          .ilike("name", `%${formData.name.trim()}%`)
+          .neq("id", selectedStudent?.id || "")
+          .limit(5);
+
+        return (similar || []).map((s: Record<string, unknown>) => ({
+          ...s,
+          match_type: "SIMILAR_NAME",
+          similarity_score: 0.7,
+        })) as PotentialDuplicate[];
+      }
+
+      return (data || []) as unknown as PotentialDuplicate[];
+    } catch (error) {
+      console.error("Error in duplicate check:", error);
+      return [];
+    }
+  };
 
   const fetchStudents = async () => {
     try {
@@ -103,7 +266,38 @@ export default function Students() {
     e.preventDefault();
     if (!user) return;
 
+    // Validate NIK is provided
+    if (!formData.nik || formData.nik.trim() === "") {
+      toast({
+        variant: "destructive",
+        title: "NIK Wajib Diisi",
+        description: "NIK harus diisi untuk setiap siswa",
+      });
+      return;
+    }
+
+    // Check if NIK is available
+    if (nikAvailable === false) {
+      toast({
+        variant: "destructive",
+        title: "NIK Tidak Tersedia",
+        description: nikError || "NIK sudah digunakan oleh siswa lain",
+      });
+      return;
+    }
+
+    // Check for duplicates only on new student (not during confirmed submit)
+    if (!selectedStudent && !pendingSubmit) {
+      const duplicates = await checkDuplicates();
+      if (duplicates.length > 0) {
+        setPotentialDuplicates(duplicates);
+        setDuplicateWarningOpen(true);
+        return;
+      }
+    }
+
     setSaving(true);
+    setPendingSubmit(false);
 
     try {
       if (selectedStudent) {
@@ -111,9 +305,9 @@ export default function Students() {
         const { error } = await supabase
           .from("students")
           .update({
-            name: formData.name,
-            class: formData.class,
-            nis: formData.nis || null,
+            name: formData.name.trim(),
+            class: formData.class.trim(),
+            nik: formData.nik.trim(),
           })
           .eq("id", selectedStudent.id);
 
@@ -127,12 +321,25 @@ export default function Students() {
         // Create new student
         const { error } = await supabase.from("students").insert({
           parent_id: user.id,
-          name: formData.name,
-          class: formData.class,
-          nis: formData.nis || null,
+          name: formData.name.trim(),
+          class: formData.class.trim(),
+          nik: formData.nik.trim(),
         });
 
-        if (error) throw error;
+        if (error) {
+          // Handle unique constraint violation
+          if (error.code === "23505") {
+            if (error.message.includes("nik")) {
+              toast({
+                variant: "destructive",
+                title: "NIK Sudah Terdaftar",
+                description: "NIK ini sudah digunakan oleh siswa lain",
+              });
+              return;
+            }
+          }
+          throw error;
+        }
 
         toast({
           title: "Berhasil",
@@ -142,7 +349,9 @@ export default function Students() {
 
       setDialogOpen(false);
       setSelectedStudent(null);
-      setFormData({ name: "", class: "", nis: "" });
+      setFormData({ name: "", class: "", nik: "" });
+      setNikAvailable(null);
+      setNikError(null);
       fetchStudents();
     } catch (error: unknown) {
       console.error("Error saving student:", error);
@@ -158,13 +367,38 @@ export default function Students() {
     }
   };
 
+  // Handle confirm add despite duplicates
+  const handleConfirmAddDespiteDuplicates = () => {
+    setDuplicateWarningOpen(false);
+    setPendingSubmit(true);
+    // Trigger form submit programmatically
+    const form = document.getElementById("student-form") as HTMLFormElement;
+    if (form) {
+      form.requestSubmit();
+    }
+  };
+
+  // Handle selecting existing student from duplicates
+  const handleSelectExisting = (studentId: string) => {
+    setDuplicateWarningOpen(false);
+    setPotentialDuplicates([]);
+    toast({
+      title: "Info",
+      description:
+        "Anda memilih siswa yang sudah ada. Silakan edit data siswa tersebut jika diperlukan.",
+    });
+    setDialogOpen(false);
+  };
+
   const handleEdit = (student: Student) => {
     setSelectedStudent(student);
     setFormData({
       name: student.name,
       class: student.class,
-      nis: student.nis || "",
+      nik: student.nik,
     });
+    setNikAvailable(true); // Current NIK is valid for this student
+    setNikError(null);
     setDialogOpen(true);
   };
 
@@ -206,7 +440,11 @@ export default function Students() {
 
   const openAddDialog = () => {
     setSelectedStudent(null);
-    setFormData({ name: "", class: "", nis: "" });
+    setFormData({ name: "", class: "", nik: "" });
+    setNikAvailable(null);
+    setNikError(null);
+    setExistingNikStudent(null);
+    setPendingSubmit(false);
     setDialogOpen(true);
   };
 
@@ -262,9 +500,61 @@ export default function Students() {
                         : "Masukkan data siswa yang akan didaftarkan"}
                     </DialogDescription>
                   </DialogHeader>
-                  <form onSubmit={handleSubmit} className="space-y-4">
+                  <form
+                    id="student-form"
+                    onSubmit={handleSubmit}
+                    className="space-y-4"
+                  >
                     <div className="space-y-2">
-                      <Label htmlFor="name">Nama Siswa</Label>
+                      <Label htmlFor="nik">
+                        NIK <span className="text-destructive">*</span>
+                      </Label>
+                      <div className="relative">
+                        <Input
+                          id="nik"
+                          value={formData.nik}
+                          onChange={(e) =>
+                            setFormData({ ...formData, nik: e.target.value })
+                          }
+                          placeholder="Masukkan NIK siswa"
+                          required
+                          className={
+                            nikAvailable === false
+                              ? "border-destructive pr-10"
+                              : nikAvailable === true
+                                ? "border-green-500 pr-10"
+                                : ""
+                          }
+                        />
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                          {nikChecking && (
+                            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                          )}
+                          {!nikChecking && nikAvailable === true && (
+                            <CheckCircle2 className="h-4 w-4 text-green-500" />
+                          )}
+                          {!nikChecking && nikAvailable === false && (
+                            <XCircle className="h-4 w-4 text-destructive" />
+                          )}
+                        </div>
+                      </div>
+                      {nikError && (
+                        <p className="text-sm text-destructive flex items-center gap-1">
+                          <AlertTriangle className="h-3 w-3" />
+                          {nikError}
+                        </p>
+                      )}
+                      {nikAvailable === true && formData.nik && (
+                        <p className="text-sm text-green-600 flex items-center gap-1">
+                          <CheckCircle2 className="h-3 w-3" />
+                          NIK tersedia
+                        </p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="name">
+                        Nama Siswa <span className="text-destructive">*</span>
+                      </Label>
                       <Input
                         id="name"
                         value={formData.name}
@@ -276,7 +566,9 @@ export default function Students() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="class">Kelas</Label>
+                      <Label htmlFor="class">
+                        Kelas <span className="text-destructive">*</span>
+                      </Label>
                       <Input
                         id="class"
                         value={formData.class}
@@ -287,17 +579,6 @@ export default function Students() {
                         required
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="nis">NIS (Opsional)</Label>
-                      <Input
-                        id="nis"
-                        value={formData.nis}
-                        onChange={(e) =>
-                          setFormData({ ...formData, nis: e.target.value })
-                        }
-                        placeholder="Nomor Induk Siswa"
-                      />
-                    </div>
                     <div className="flex gap-3 justify-end">
                       <Button
                         type="button"
@@ -306,7 +587,12 @@ export default function Students() {
                       >
                         Batal
                       </Button>
-                      <Button type="submit" disabled={saving}>
+                      <Button
+                        type="submit"
+                        disabled={
+                          saving || nikChecking || nikAvailable === false
+                        }
+                      >
                         {saving && (
                           <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                         )}
@@ -385,10 +671,21 @@ export default function Students() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2 text-sm">
-                    {student.nis && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">NIS</span>
-                        <span className="font-medium">{student.nis}</span>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">NIK</span>
+                      <span className="font-medium font-mono">
+                        {student.nik}
+                      </span>
+                    </div>
+                    {student.student_code && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Kode</span>
+                        <Badge
+                          variant="secondary"
+                          className="font-mono text-xs"
+                        >
+                          {student.student_code}
+                        </Badge>
                       </div>
                     )}
                     <div className="flex justify-between">
@@ -482,6 +779,92 @@ export default function Students() {
             fetchStudents();
           }}
         />
+
+        {/* Duplicate Warning Dialog */}
+        <AlertDialog
+          open={duplicateWarningOpen}
+          onOpenChange={setDuplicateWarningOpen}
+        >
+          <AlertDialogContent className="max-w-lg">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2 text-amber-600">
+                <AlertTriangle className="h-5 w-5" />
+                Siswa Serupa Ditemukan
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                Sistem menemukan data siswa yang mirip. Pastikan ini bukan
+                duplikat sebelum menambahkan.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+
+            <div className="my-4 space-y-2 max-h-60 overflow-y-auto">
+              {potentialDuplicates.map((dup) => (
+                <div
+                  key={dup.id}
+                  className="flex items-center justify-between p-3 border rounded-lg bg-muted/50"
+                >
+                  <div className="flex-1">
+                    <p className="font-medium">{dup.name}</p>
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <span>Kelas: {dup.class}</span>
+                      <span>•</span>
+                      <span>NIK: {dup.nik}</span>
+                    </div>
+                    {dup.student_code && (
+                      <Badge
+                        variant="outline"
+                        className="mt-1 text-xs font-mono"
+                      >
+                        {dup.student_code}
+                      </Badge>
+                    )}
+                    <Badge
+                      variant={
+                        dup.match_type === "EXACT_NIK"
+                          ? "destructive"
+                          : "secondary"
+                      }
+                      className="ml-2 mt-1 text-xs"
+                    >
+                      {dup.match_type === "EXACT_NIK" && "NIK Sama"}
+                      {dup.match_type === "EXACT_NAME_CLASS" &&
+                        "Nama & Kelas Sama"}
+                      {dup.match_type === "EXACT_NAME" && "Nama Sama"}
+                      {dup.match_type === "SIMILAR_NAME" && "Nama Mirip"}
+                    </Badge>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleSelectExisting(dup.id)}
+                  >
+                    Gunakan Ini
+                  </Button>
+                </div>
+              ))}
+            </div>
+
+            <Alert className="bg-amber-50 border-amber-200">
+              <AlertTriangle className="h-4 w-4 text-amber-600" />
+              <AlertDescription className="text-amber-800">
+                Jika Anda yakin ini adalah siswa berbeda (misal: kembar), klik
+                "Tetap Tambah Baru".
+              </AlertDescription>
+            </Alert>
+
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setDuplicateWarningOpen(false)}>
+                Batal
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleConfirmAddDespiteDuplicates}
+                className="bg-amber-600 hover:bg-amber-700"
+              >
+                Tetap Tambah Baru
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </DashboardLayout>
   );
