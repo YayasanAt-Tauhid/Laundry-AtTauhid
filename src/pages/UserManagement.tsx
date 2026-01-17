@@ -43,8 +43,10 @@ import {
   Phone,
   Calendar,
   UserCircle,
+  Link2,
 } from "lucide-react";
 import { ImportParentData } from "@/components/import/ImportParentData";
+import { ImportParentLink } from "@/components/import/ImportParentLink";
 
 const PAGE_SIZE = 20;
 
@@ -73,6 +75,7 @@ export default function UserManagement() {
   const [currentPage, setCurrentPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importLinkDialogOpen, setImportLinkDialogOpen] = useState(false);
   const [selectedParent, setSelectedParent] = useState<ParentUser | null>(null);
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
 
@@ -204,10 +207,19 @@ export default function UserManagement() {
             </p>
           </div>
 
-          <Button onClick={() => setImportDialogOpen(true)}>
-            <Upload className="h-4 w-4 mr-2" />
-            Import Orang Tua
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setImportLinkDialogOpen(true)}
+            >
+              <Link2 className="h-4 w-4 mr-2" />
+              Hubungkan Siswa
+            </Button>
+            <Button onClick={() => setImportDialogOpen(true)}>
+              <Upload className="h-4 w-4 mr-2" />
+              Import Baru
+            </Button>
+          </div>
         </div>
 
         {/* Search */}
@@ -250,10 +262,19 @@ export default function UserManagement() {
                 <p className="text-muted-foreground text-center mb-4">
                   Import data orang tua untuk memulai
                 </p>
-                <Button onClick={() => setImportDialogOpen(true)}>
-                  <Upload className="h-4 w-4 mr-2" />
-                  Import Orang Tua
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setImportLinkDialogOpen(true)}
+                  >
+                    <Link2 className="h-4 w-4 mr-2" />
+                    Hubungkan ke Siswa yang Ada
+                  </Button>
+                  <Button onClick={() => setImportDialogOpen(true)}>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Import Baru
+                  </Button>
+                </div>
               </div>
             ) : (
               <>
@@ -454,10 +475,19 @@ export default function UserManagement() {
           </DialogContent>
         </Dialog>
 
-        {/* Import Dialog */}
+        {/* Import Dialog - Create New Parents with Students */}
         <ImportParentData
           open={importDialogOpen}
           onOpenChange={setImportDialogOpen}
+          onImportComplete={() => {
+            fetchParents();
+          }}
+        />
+
+        {/* Import Dialog - Link Existing Students to New Parents */}
+        <ImportParentLink
+          open={importLinkDialogOpen}
+          onOpenChange={setImportLinkDialogOpen}
           onImportComplete={() => {
             fetchParents();
           }}
