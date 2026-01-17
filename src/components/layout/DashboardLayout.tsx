@@ -55,6 +55,12 @@ const navItems: NavItem[] = [
     roles: ["staff"],
   },
   {
+    label: "Tagihan",
+    href: "/staff-bills",
+    icon: <Receipt className="h-5 w-5" />,
+    roles: ["staff"],
+  },
+  {
     label: "Daftar Order",
     href: "/orders",
     icon: <ClipboardList className="h-5 w-5" />,

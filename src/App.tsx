@@ -18,6 +18,7 @@ import CashierPOS from "./pages/CashierPOS";
 import Settings from "./pages/Settings";
 import DataMigration from "./pages/DataMigration";
 import UserManagement from "./pages/UserManagement";
+import StaffBills from "./pages/StaffBills";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 
@@ -92,6 +93,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute allowedRoles={["staff"]}>
             <BulkOrderEntry />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/staff-bills"
+        element={
+          <ProtectedRoute allowedRoles={["staff"]}>
+            <StaffBills />
           </ProtectedRoute>
         }
       />
