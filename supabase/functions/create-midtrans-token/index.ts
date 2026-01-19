@@ -12,6 +12,7 @@ const corsHeaders = {
 
 interface PaymentRequest {
   orderId: string;
+  orderIds?: string[]; // For bulk payments
   grossAmount: number;
   studentName: string;
   category: string;
@@ -20,6 +21,7 @@ interface PaymentRequest {
   customerName?: string;
   adminFee?: number;
   enabledPayments?: string[];
+  isBulk?: boolean; // Flag for bulk payment
 }
 
 serve(async (req) => {
@@ -39,6 +41,7 @@ serve(async (req) => {
 
     const {
       orderId,
+      orderIds,
       grossAmount,
       studentName,
       category,
@@ -47,21 +50,36 @@ serve(async (req) => {
       customerName,
       adminFee = 0,
       enabledPayments,
+      isBulk = false,
     }: PaymentRequest = await req.json();
 
     // Generate unique order ID for Midtrans
-    const midtransOrderId = `LAUNDRY-${orderId.substring(0, 8)}-${Date.now()}`;
+    // For bulk payments, use BULK-{timestamp} format
+    // For single payments, use LAUNDRY-{uuid8}-{timestamp} format
+    const midtransOrderId = isBulk
+      ? `BULK-${Date.now()}`
+      : `LAUNDRY-${orderId.substring(0, 8)}-${Date.now()}`;
+
+    // Determine which order IDs to update
+    const orderIdsToUpdate = isBulk && orderIds ? orderIds : [orderId];
 
     // Calculate total with admin fee
     const totalWithFee = grossAmount + adminFee;
 
     // Prepare item details - only add admin fee if > 0
+    const itemName = isBulk
+      ? `Bulk Payment (${orderIdsToUpdate.length} orders) - ${studentName}`.substring(
+          0,
+          50,
+        )
+      : `Laundry ${category} - ${studentName}`.substring(0, 50);
+
     const itemDetails: any[] = [
       {
-        id: orderId,
+        id: isBulk ? "BULK_PAYMENT" : orderId,
         price: grossAmount,
         quantity: 1,
-        name: `Laundry ${category} - ${studentName}`.substring(0, 50),
+        name: itemName,
       },
     ];
 
@@ -124,47 +142,61 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+    // Calculate admin fee per order for bulk payments
+    const adminFeePerOrder = isBulk
+      ? Math.ceil(adminFee / orderIdsToUpdate.length)
+      : adminFee;
+
     console.log(
-      `Updating order ${orderId} with midtrans_order_id: ${midtransOrderId}`,
+      `Updating ${orderIdsToUpdate.length} order(s) with midtrans_order_id: ${midtransOrderId}`,
     );
+    console.log("Order IDs to update:", orderIdsToUpdate);
 
-    const { data: updateData, error: updateError } = await supabase
-      .from("laundry_orders")
-      .update({
-        midtrans_order_id: midtransOrderId,
-        midtrans_snap_token: midtransResult.token,
-        status: "MENUNGGU_PEMBAYARAN",
-        admin_fee: adminFee,
-      })
-      .eq("id", orderId)
-      .select("id, midtrans_order_id");
+    // Update all orders
+    let updateSuccess = true;
+    for (const oid of orderIdsToUpdate) {
+      const { data: updateData, error: updateError } = await supabase
+        .from("laundry_orders")
+        .update({
+          midtrans_order_id: midtransOrderId,
+          midtrans_snap_token: midtransResult.token,
+          status: "MENUNGGU_PEMBAYARAN",
+          admin_fee: adminFeePerOrder,
+        })
+        .eq("id", oid)
+        .select("id, midtrans_order_id");
 
-    if (updateError) {
-      console.error("Failed to update order in database:", updateError);
-      console.error("Order ID:", orderId);
-      console.error("Midtrans Order ID:", midtransOrderId);
-      // Don't throw - still return token so payment can proceed
-      // Webhook will handle the update if this fails
-    } else {
-      console.log("Successfully updated order:", updateData);
+      if (updateError) {
+        console.error(`Failed to update order ${oid}:`, updateError);
+        updateSuccess = false;
+      } else {
+        console.log(`Successfully updated order ${oid}:`, updateData);
+      }
     }
 
-    // Verify the update actually happened
+    if (!updateSuccess) {
+      console.warn("Some orders failed to update. Webhook will handle retry.");
+    }
+
+    // Verify updates for the first order (spot check)
     const { data: verifyData } = await supabase
       .from("laundry_orders")
       .select("id, midtrans_order_id, status")
-      .eq("id", orderId)
+      .eq("id", orderIdsToUpdate[0])
       .single();
 
     if (verifyData) {
-      console.log("Verified order state:", verifyData);
+      console.log("Verified first order state:", verifyData);
       if (verifyData.midtrans_order_id !== midtransOrderId) {
         console.warn("WARNING: midtrans_order_id mismatch after update!");
         console.warn("Expected:", midtransOrderId);
         console.warn("Got:", verifyData.midtrans_order_id);
       }
     } else {
-      console.warn("Could not verify order update - order not found:", orderId);
+      console.warn(
+        "Could not verify order update - order not found:",
+        orderIdsToUpdate[0],
+      );
     }
 
     return new Response(

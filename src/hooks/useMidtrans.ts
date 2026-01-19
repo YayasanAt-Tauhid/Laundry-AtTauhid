@@ -57,9 +57,8 @@ interface BulkPaymentParams {
   isCashier?: boolean; // Flag for cashier - no admin fee
 }
 
-// Midtrans Server Key - In production, this should ONLY be used in Edge Function
-// For demo/sandbox purposes, we're using it here
-const MIDTRANS_SERVER_KEY = import.meta.env.VITE_MIDTRANS_SERVER_KEY || "";
+// NOTE: Server Key should NEVER be in frontend code for production!
+// All Midtrans token creation should go through Edge Function
 const MIDTRANS_IS_SANDBOX = true; // Set to false for production
 
 export function useMidtrans() {
@@ -85,107 +84,14 @@ export function useMidtrans() {
     return amount < QRIS_MAX_AMOUNT ? "QRIS (0.7%)" : "VA (Rp 4.400)";
   };
 
-  const createSnapTokenDirect = async (
-    params: PaymentParams & { adminFee: number },
-  ): Promise<string | null> => {
-    // Generate unique order ID for Midtrans
-    const midtransOrderId = `LAUNDRY-${params.orderId.substring(0, 8)}-${Date.now()}`;
-
-    // Calculate total with admin fee
-    const totalWithFee = params.grossAmount + params.adminFee;
-
-    // Get enabled payments based on amount
-    const paymentMethods = getEnabledPaymentMethods(totalWithFee);
-
-    // Prepare item details - only add admin fee if > 0
-    const itemDetails: any[] = [
-      {
-        id: params.orderId,
-        price: params.grossAmount,
-        quantity: 1,
-        name: `Laundry ${params.category} - ${params.studentName}`.substring(
-          0,
-          50,
-        ),
-      },
-    ];
-
-    if (params.adminFee > 0) {
-      itemDetails.push({
-        id: "ADMIN_FEE",
-        price: params.adminFee,
-        quantity: 1,
-        name: "Biaya Admin",
-      });
-    }
-
-    // Prepare Midtrans transaction data
-    const transactionData = {
-      transaction_details: {
-        order_id: midtransOrderId,
-        gross_amount: totalWithFee,
-      },
-      item_details: itemDetails,
-      customer_details: {
-        first_name: params.customerName || "Customer",
-        email: params.customerEmail || "customer@example.com",
-        phone: params.customerPhone || "",
-      },
-      // Enable payment methods based on amount
-      ...paymentMethods,
-    };
-
-    try {
-      // Use Vite proxy to avoid CORS issues in development
-      // In production, this should go through an Edge Function
-      const midtransUrl = MIDTRANS_IS_SANDBOX
-        ? "/midtrans-api/snap/v1/transactions" // Proxied through Vite
-        : "/midtrans-api/snap/v1/transactions";
-
-      const authString = btoa(`${MIDTRANS_SERVER_KEY}:`);
-
-      const response = await fetch(midtransUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          Authorization: `Basic ${authString}`,
-        },
-        body: JSON.stringify(transactionData),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        console.error("Midtrans error:", result);
-        throw new Error(
-          result.error_messages?.join(", ") || "Failed to create payment",
-        );
-      }
-
-      // Update the order with midtrans info and admin fee
-      await supabase
-        .from("laundry_orders")
-        .update({
-          midtrans_order_id: midtransOrderId,
-          midtrans_snap_token: result.token,
-          status: "MENUNGGU_PEMBAYARAN",
-          admin_fee: params.adminFee,
-        })
-        .eq("id", params.orderId);
-
-      return result.token;
-    } catch (error: any) {
-      console.error("Error creating snap token:", error);
-      throw error;
-    }
-  };
+  // NOTE: createSnapTokenDirect has been removed for security.
+  // All Midtrans token creation now goes through Edge Function only.
 
   const createSnapToken = async (
     params: PaymentParams & { adminFee: number },
   ): Promise<string | null> => {
     try {
-      // First, try to call Supabase Edge Function (recommended for production)
+      // Call Supabase Edge Function (secure - server key stays on server)
       const totalWithFee = params.grossAmount + params.adminFee;
       const { data, error } = await supabase.functions.invoke(
         "create-midtrans-token",
@@ -198,19 +104,18 @@ export function useMidtrans() {
         },
       );
 
-      if (!error && data?.token) {
-        return data.token;
+      if (error) {
+        console.error("Edge function error:", error);
+        throw new Error(
+          "Gagal membuat token pembayaran. Pastikan Edge Function 'create-midtrans-token' sudah di-deploy dan MIDTRANS_SERVER_KEY sudah di-set di Supabase Secrets.",
+        );
       }
 
-      console.log("Edge function not available, trying direct API call...");
-
-      // Fallback: Call Midtrans directly (for demo/sandbox only)
-      // WARNING: This exposes server key in frontend - only use for development!
-      if (MIDTRANS_SERVER_KEY) {
-        return await createSnapTokenDirect(params);
+      if (!data?.token) {
+        throw new Error("Token tidak diterima dari server");
       }
 
-      throw new Error("Midtrans Server Key tidak dikonfigurasi");
+      return data.token;
     } catch (error: any) {
       console.error("Error creating snap token:", error);
       throw error;
@@ -375,82 +280,41 @@ export function useMidtrans() {
   const createBulkSnapToken = async (
     params: BulkPaymentParams & { adminFee: number },
   ): Promise<string | null> => {
-    const midtransOrderId = `BULK-${Date.now()}`;
-    const totalWithFee = params.grossAmount + params.adminFee;
-
-    const transactionData = {
-      transaction_details: {
-        order_id: midtransOrderId,
-        gross_amount: totalWithFee,
-      },
-      item_details: [
-        {
-          id: midtransOrderId,
-          price: params.grossAmount,
-          quantity: 1,
-          name: `${params.description} - ${params.studentNames}`.substring(
-            0,
-            50,
-          ),
-        },
-        {
-          id: "ADMIN_FEE",
-          price: params.adminFee,
-          quantity: 1,
-          name: "Biaya Admin",
-        },
-      ],
-      customer_details: {
-        first_name: params.customerName || "Customer",
-        email: params.customerEmail || "customer@example.com",
-        phone: params.customerPhone || "",
-      },
-      // Only enable QRIS and Virtual Account based on amount
-      ...getEnabledPaymentMethods(totalWithFee),
-    };
-
     try {
-      const midtransUrl = "/midtrans-api/snap/v1/transactions";
-      const authString = btoa(`${MIDTRANS_SERVER_KEY}:`);
-
-      const response = await fetch(midtransUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          Authorization: `Basic ${authString}`,
+      // Call Edge Function for bulk payment (secure)
+      const totalWithFee = params.grossAmount + params.adminFee;
+      const { data, error } = await supabase.functions.invoke(
+        "create-midtrans-token",
+        {
+          body: {
+            orderId: params.orderIds[0], // Primary order ID
+            orderIds: params.orderIds, // All order IDs for bulk
+            grossAmount: params.grossAmount,
+            studentName: params.studentNames,
+            category: "Bulk Payment",
+            customerEmail: params.customerEmail,
+            customerPhone: params.customerPhone,
+            customerName: params.customerName,
+            adminFee: params.adminFee,
+            isBulk: true,
+            enabledPayments:
+              getEnabledPaymentMethods(totalWithFee).enabled_payments,
+          },
         },
-        body: JSON.stringify(transactionData),
-      });
+      );
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        console.error("Midtrans error:", result);
+      if (error) {
+        console.error("Edge function error:", error);
         throw new Error(
-          result.error_messages?.join(", ") || "Failed to create payment",
+          "Gagal membuat token pembayaran bulk. Pastikan Edge Function sudah di-deploy.",
         );
       }
 
-      // Calculate admin fee per order
-      const adminFeePerOrder = Math.ceil(
-        params.adminFee / params.orderIds.length,
-      );
-
-      // Update all orders with midtrans info
-      for (const orderId of params.orderIds) {
-        await supabase
-          .from("laundry_orders")
-          .update({
-            midtrans_order_id: midtransOrderId,
-            midtrans_snap_token: result.token,
-            status: "MENUNGGU_PEMBAYARAN",
-            admin_fee: adminFeePerOrder,
-          })
-          .eq("id", orderId);
+      if (!data?.token) {
+        throw new Error("Token tidak diterima dari server");
       }
 
-      return result.token;
+      return data.token;
     } catch (error: any) {
       console.error("Error creating bulk snap token:", error);
       throw error;
