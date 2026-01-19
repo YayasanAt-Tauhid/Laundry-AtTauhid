@@ -632,9 +632,19 @@ export default function CashierReports() {
             `
                 : ""
             }
+            ${
+              payment.rounding_applied && payment.rounding_applied > 0
+                ? `
+            <div class="total-row">
+              <span>Diskon Pembulatan (Sedekah):</span>
+              <span>- ${formatCurrency(payment.rounding_applied)}</span>
+            </div>
+            `
+                : ""
+            }
             <div class="total-row grand">
               <span>TOTAL:</span>
-              <span>${formatCurrency(payment.total_price - (payment.wadiah_used || 0))}</span>
+              <span>${formatCurrency(payment.total_price - (payment.wadiah_used || 0) - (payment.rounding_applied || 0))}</span>
             </div>
             ${
               payment.paid_amount

@@ -19,6 +19,7 @@ import {
   Package,
   Wallet,
   Upload,
+  PiggyBank,
 } from "lucide-react";
 import { USER_ROLES, type UserRole } from "@/lib/constants";
 
@@ -54,6 +55,12 @@ const navItems: NavItem[] = [
     href: "/staff-bills",
     icon: <Receipt className="h-5 w-5" />,
     roles: ["staff"],
+  },
+  {
+    label: "Cek Saldo Wadiah",
+    href: "/wadiah-balance",
+    icon: <PiggyBank className="h-5 w-5" />,
+    roles: ["admin", "staff"],
   },
   {
     label: "Daftar Order",

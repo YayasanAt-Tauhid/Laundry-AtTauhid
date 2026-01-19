@@ -19,6 +19,7 @@ import Settings from "./pages/Settings";
 import DataMigration from "./pages/DataMigration";
 import UserManagement from "./pages/UserManagement";
 import StaffBills from "./pages/StaffBills";
+import WadiahBalance from "./pages/WadiahBalance";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 
@@ -145,6 +146,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute allowedRoles={["cashier"]}>
             <CashierReports />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/wadiah-balance"
+        element={
+          <ProtectedRoute allowedRoles={["admin", "staff"]}>
+            <WadiahBalance />
           </ProtectedRoute>
         }
       />

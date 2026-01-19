@@ -617,6 +617,20 @@ export default function CashierPOS() {
       const allSuccess = results.every((r) => r === true);
 
       if (allSuccess) {
+        // Save paid_amount and change_amount to database
+        const paidAmountValue = paidAmountNum;
+        const changeAmountValue = paidAmountNum - selectedTotal;
+
+        for (const bill of selectedBillsList) {
+          await supabase
+            .from("laundry_orders")
+            .update({
+              paid_amount: paidAmountValue,
+              change_amount: changeAmountValue,
+            })
+            .eq("id", bill.id);
+        }
+
         // Generate receipt
         const receiptData: PaymentReceipt = {
           receiptNumber: `RCP-${Date.now().toString().slice(-8)}`,
