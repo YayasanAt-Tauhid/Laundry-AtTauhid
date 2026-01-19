@@ -457,10 +457,17 @@ serve(async (req) => {
       console.log(`→ Routing to: ${detectedApp.name}`);
       result = await processOrderForApp(detectedApp, notification);
 
-      // If not found in detected app, try others
-      if (result.orderCount === 0) {
+      // Only try other apps if:
+      // 1. Order not found AND
+      // 2. Detected app has NO specific prefix (e.g., UUID format that could belong to multiple apps)
+      // If order has a prefix like LAUNDRY-, it clearly belongs to that app only
+      if (result.orderCount === 0 && !detectedApp.prefix) {
         console.log(`→ Not found in ${detectedApp.name}, trying other apps...`);
         result = await tryAllApps(notification);
+      } else if (result.orderCount === 0 && detectedApp.prefix) {
+        console.log(
+          `→ Order not found in ${detectedApp.name}, but has specific prefix - not trying other apps`,
+        );
       }
     } else {
       // Unknown format or BULK - try all apps
