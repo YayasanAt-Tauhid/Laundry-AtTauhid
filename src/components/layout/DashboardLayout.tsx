@@ -34,7 +34,7 @@ const navItems: NavItem[] = [
     label: "Dashboard",
     href: "/dashboard",
     icon: <LayoutDashboard className="h-5 w-5" />,
-    roles: ["admin", "parent", "staff", "partner", "cashier"],
+    roles: ["admin", "parent", "partner", "cashier"],
   },
   {
     label: "Data Siswa",
@@ -42,12 +42,7 @@ const navItems: NavItem[] = [
     icon: <GraduationCap className="h-5 w-5" />,
     roles: ["admin", "parent"],
   },
-  {
-    label: "Input Laundry",
-    href: "/orders/new",
-    icon: <Package className="h-5 w-5" />,
-    roles: ["staff"],
-  },
+
   {
     label: "Input Bulk",
     href: "/orders/bulk",
@@ -64,7 +59,7 @@ const navItems: NavItem[] = [
     label: "Daftar Order",
     href: "/orders",
     icon: <ClipboardList className="h-5 w-5" />,
-    roles: ["admin", "staff", "partner"],
+    roles: ["admin", "partner"],
   },
   {
     label: "Tagihan",

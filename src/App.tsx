@@ -46,7 +46,9 @@ function ProtectedRoute({
   }
 
   if (allowedRoles && (!userRole || !allowedRoles.includes(userRole))) {
-    return <Navigate to="/dashboard" replace />;
+    // Staff diarahkan ke Input Bulk, role lain ke Dashboard
+    const fallbackPath = userRole === "staff" ? "/orders/bulk" : "/dashboard";
+    return <Navigate to={fallbackPath} replace />;
   }
 
   return <>{children}</>;
@@ -59,7 +61,9 @@ function AppRoutes() {
       <Route
         path="/dashboard"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute
+            allowedRoles={["admin", "parent", "partner", "cashier"]}
+          >
             <Dashboard />
           </ProtectedRoute>
         }
@@ -75,7 +79,7 @@ function AppRoutes() {
       <Route
         path="/orders"
         element={
-          <ProtectedRoute allowedRoles={["admin", "staff", "partner"]}>
+          <ProtectedRoute allowedRoles={["admin", "partner"]}>
             <Orders />
           </ProtectedRoute>
         }
