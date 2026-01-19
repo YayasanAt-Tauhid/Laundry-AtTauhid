@@ -405,19 +405,31 @@ export function ImportParentData({
 
       setProgress(30);
 
-      // Call the edge function
-      const { data, error } = await supabase.functions.invoke(
-        "import-parents",
+      // Use fetch directly to call edge function with proper headers
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+      const response = await fetch(
+        `${supabaseUrl}/functions/v1/import-parents`,
         {
-          body: { parents: parentData },
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session?.access_token}`,
+            apikey: supabaseAnonKey,
+          },
+          body: JSON.stringify({ parents: parentData }),
         },
       );
 
       setProgress(90);
 
-      if (error) {
-        throw new Error(error.message || "Gagal memanggil fungsi import");
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP error ${response.status}`);
       }
+
+      const data = await response.json();
 
       if (!data.success && data.error) {
         throw new Error(data.error);

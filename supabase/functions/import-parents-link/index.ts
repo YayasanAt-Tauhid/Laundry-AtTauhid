@@ -109,7 +109,10 @@ Deno.serve(async (req) => {
     }
 
     // Parse request body
-    const { parents, overwrite_parent = false }: { parents: ParentData[]; overwrite_parent?: boolean } = await req.json();
+    const {
+      parents,
+      overwrite_parent = false,
+    }: { parents: ParentData[]; overwrite_parent?: boolean } = await req.json();
 
     if (!parents || !Array.isArray(parents) || parents.length === 0) {
       throw new Error("Invalid request: parents array is required");
@@ -152,33 +155,39 @@ Deno.serve(async (req) => {
         }
 
         // Check if any student NIK exists before creating parent account
-        const nikList = parent.students.map(s => s.nik?.trim()).filter(Boolean);
+        const nikList = parent.students
+          .map((s) => s.nik?.trim())
+          .filter(Boolean);
 
         if (nikList.length === 0) {
           throw new Error("Tidak ada NIK siswa yang valid");
         }
 
         // Check existing students by NIK
-        const { data: existingStudents, error: checkError } = await supabaseAdmin
-          .from("students")
-          .select("id, nik, name, class, parent_id, is_active")
-          .in("nik", nikList);
+        const { data: existingStudents, error: checkError } =
+          await supabaseAdmin
+            .from("students")
+            .select("id, nik, name, class, parent_id, is_active")
+            .in("nik", nikList);
 
         if (checkError) {
           throw new Error(`Gagal mengecek siswa: ${checkError.message}`);
         }
 
-        const foundNiks = new Set(existingStudents?.map(s => s.nik) || []);
-        const missingNiks = nikList.filter(nik => !foundNiks.has(nik));
+        const foundNiks = new Set(existingStudents?.map((s) => s.nik) || []);
+        const missingNiks = nikList.filter((nik) => !foundNiks.has(nik));
 
         if (missingNiks.length === nikList.length) {
-          throw new Error(`Tidak ada siswa ditemukan dengan NIK: ${missingNiks.join(", ")}`);
+          throw new Error(
+            `Tidak ada siswa ditemukan dengan NIK: ${missingNiks.join(", ")}`,
+          );
         }
 
         // Check if email already exists
-        const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers();
+        const { data: existingUsers } =
+          await supabaseAdmin.auth.admin.listUsers();
         const existingUser = existingUsers?.users?.find(
-          (u) => u.email?.toLowerCase() === parent.email.toLowerCase()
+          (u) => u.email?.toLowerCase() === parent.email.toLowerCase(),
         );
 
         let userId: string;
@@ -232,7 +241,7 @@ Deno.serve(async (req) => {
             continue;
           }
 
-          const existingStudent = existingStudents?.find(s => s.nik === nik);
+          const existingStudent = existingStudents?.find((s) => s.nik === nik);
 
           if (!existingStudent) {
             result.student_details.push({
@@ -247,7 +256,10 @@ Deno.serve(async (req) => {
           }
 
           // Check if student already has a different parent
-          if (existingStudent.parent_id && existingStudent.parent_id !== userId) {
+          if (
+            existingStudent.parent_id &&
+            existingStudent.parent_id !== userId
+          ) {
             if (!overwrite_parent) {
               result.student_details.push({
                 nik,
@@ -303,7 +315,6 @@ Deno.serve(async (req) => {
           result.error = "Tidak ada siswa yang berhasil dihubungkan";
           summary.parents_failed++;
         }
-
       } catch (error) {
         result.error = error.message;
         summary.parents_failed++;
@@ -323,7 +334,7 @@ Deno.serve(async (req) => {
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 200,
-      }
+      },
     );
   } catch (error) {
     console.error("Import parents link error:", error);
@@ -336,7 +347,7 @@ Deno.serve(async (req) => {
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: error.message.includes("Unauthorized") ? 403 : 500,
-      }
+      },
     );
   }
 });

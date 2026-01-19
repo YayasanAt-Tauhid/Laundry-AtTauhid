@@ -18,6 +18,10 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  PiggyBank,
+  Wallet,
+  Calendar,
+  FileText,
 } from "lucide-react";
 import {
   LAUNDRY_CATEGORIES,
@@ -42,7 +46,14 @@ interface Bill {
   status: OrderStatus;
   created_at: string;
   laundry_date: string;
+  paid_at: string | null;
+  paid_amount: number | null;
+  change_amount: number | null;
+  wadiah_used: number | null;
+  rounding_applied: number | null;
+  notes: string | null;
   students: {
+    id: string;
     name: string;
     class: string;
     nik: string;
@@ -50,6 +61,13 @@ interface Bill {
   laundry_partners: {
     name: string;
   };
+}
+
+interface StudentWadiahBalance {
+  student_id: string;
+  balance: number;
+  student_name: string;
+  student_class: string;
 }
 
 const PAGE_SIZE = 20;
@@ -72,6 +90,9 @@ export default function Bills() {
   const [isPayingAll, setIsPayingAll] = useState(false);
   const [paidPage, setPaidPage] = useState(0);
   const [paidBillsCount, setPaidBillsCount] = useState(0);
+  const [studentBalances, setStudentBalances] = useState<
+    StudentWadiahBalance[]
+  >([]);
 
   useEffect(() => {
     fetchBills();
@@ -96,7 +117,13 @@ export default function Bills() {
           status,
           created_at,
           laundry_date,
-          students (name, class, nik),
+          paid_at,
+          paid_amount,
+          change_amount,
+          wadiah_used,
+          rounding_applied,
+          notes,
+          students (id, name, class, nik),
           laundry_partners (name)
         `,
         )
@@ -128,18 +155,59 @@ export default function Bills() {
           status,
           created_at,
           laundry_date,
-          students (name, class, nik),
+          paid_at,
+          paid_amount,
+          change_amount,
+          wadiah_used,
+          rounding_applied,
+          notes,
+          students (id, name, class, nik),
           laundry_partners (name)
         `,
           { count: "exact" },
         )
         .in("status", ["DIBAYAR", "SELESAI"])
-        .order("laundry_date", { ascending: false })
+        .order("paid_at", { ascending: false })
         .range(from, to);
 
       if (paidError) throw paidError;
       setPaidBills(paidData || []);
       setPaidBillsCount(count || 0);
+
+      // Fetch wadiah balances for students
+      const allBillsData = [...(unpaidData || []), ...(paidData || [])];
+      const studentIds = [
+        ...new Set(allBillsData.map((b) => b.students?.id).filter(Boolean)),
+      ];
+
+      if (studentIds.length > 0) {
+        const { data: balanceData } = await supabase
+          .from("student_wadiah_balance")
+          .select(
+            `
+            student_id,
+            balance,
+            students (name, class)
+          `,
+          )
+          .in("student_id", studentIds);
+
+        if (balanceData) {
+          const balances: StudentWadiahBalance[] = balanceData.map((b) => {
+            const studentData = b.students as {
+              name?: string;
+              class?: string;
+            } | null;
+            return {
+              student_id: b.student_id,
+              balance: b.balance || 0,
+              student_name: studentData?.name || "",
+              student_class: studentData?.class || "",
+            };
+          });
+          setStudentBalances(balances);
+        }
+      }
     } catch (error) {
       console.error("Error fetching bills:", error);
       toast({
@@ -271,6 +339,22 @@ export default function Bills() {
     });
   };
 
+  const formatDateTime = (date: string) => {
+    return new Date(date).toLocaleDateString("id-ID", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  const getStudentBalance = (studentId: string | undefined): number => {
+    if (!studentId) return 0;
+    const balance = studentBalances.find((b) => b.student_id === studentId);
+    return balance?.balance || 0;
+  };
+
   const formatLaundryDate = (date: string) => {
     return new Date(date + "T00:00:00").toLocaleDateString("id-ID", {
       weekday: "long",
@@ -311,6 +395,49 @@ export default function Bills() {
             Kelola dan bayar tagihan laundry Anda
           </p>
         </div>
+
+        {/* Student Wadiah Balances */}
+        {studentBalances.length > 0 &&
+          studentBalances.some((b) => b.balance > 0) && (
+            <Card className="bg-gradient-to-br from-emerald-500/10 to-green-500/5 border-emerald-500/20">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <PiggyBank className="h-5 w-5 text-emerald-600" />
+                  Saldo Wadiah Siswa
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {studentBalances
+                    .filter((b) => b.balance > 0)
+                    .map((balance) => (
+                      <div
+                        key={balance.student_id}
+                        className="flex items-center justify-between p-3 rounded-lg bg-background/50 border"
+                      >
+                        <div>
+                          <p className="font-medium text-sm">
+                            {balance.student_name}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Kelas {balance.student_class}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-bold text-emerald-600">
+                            {formatCurrency(balance.balance)}
+                          </p>
+                          <p className="text-xs text-muted-foreground">Saldo</p>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+                <p className="text-xs text-muted-foreground mt-3">
+                  💡 Saldo wadiah dapat digunakan untuk pembayaran di kasir
+                </p>
+              </CardContent>
+            </Card>
+          )}
 
         {/* Summary Card */}
         {unpaidBills.length > 0 && (
@@ -581,7 +708,8 @@ export default function Bills() {
             {/* Paid Bills */}
             {(paidBills.length > 0 || paidBillsCount > 0) && (
               <div className="space-y-4">
-                <h2 className="text-lg font-semibold">
+                <h2 className="text-lg font-semibold flex items-center gap-2">
+                  <CheckCircle2 className="h-5 w-5 text-green-600" />
                   Riwayat Pembayaran ({paidBillsCount} transaksi)
                 </h2>
                 <Card className="dashboard-card">
@@ -590,29 +718,26 @@ export default function Bills() {
                       <table className="w-full">
                         <thead className="bg-muted/30">
                           <tr>
-                            <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
+                            <th className="text-left py-4 px-4 text-sm font-medium text-muted-foreground">
                               Siswa
                             </th>
-                            <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
-                              Kategori
-                            </th>
-                            <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
+                            <th className="text-left py-4 px-4 text-sm font-medium text-muted-foreground">
                               Laundry
                             </th>
-                            <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
-                              Admin
+                            <th className="text-left py-4 px-4 text-sm font-medium text-muted-foreground">
+                              Tagihan
                             </th>
-                            <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
-                              Total
+                            <th className="text-left py-4 px-4 text-sm font-medium text-muted-foreground">
+                              Pembayaran
                             </th>
-                            <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
+                            <th className="text-left py-4 px-4 text-sm font-medium text-muted-foreground">
                               Metode
                             </th>
-                            <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
-                              Status
+                            <th className="text-left py-4 px-4 text-sm font-medium text-muted-foreground">
+                              Tanggal Bayar
                             </th>
-                            <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
-                              Tgl Laundry
+                            <th className="text-left py-4 px-4 text-sm font-medium text-muted-foreground">
+                              Catatan
                             </th>
                           </tr>
                         </thead>
@@ -620,67 +745,131 @@ export default function Bills() {
                           {paidBills.map((bill) => (
                             <tr
                               key={bill.id}
-                              className="border-b border-border/50"
+                              className="border-b border-border/50 hover:bg-muted/30"
                             >
-                              <td className="py-4 px-6">
+                              <td className="py-4 px-4">
                                 <div className="flex items-center gap-2">
                                   <span className="font-mono text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
                                     {bill.students?.nik}
                                   </span>
-                                  <p className="font-medium">
-                                    {bill.students?.name}
-                                  </p>
                                 </div>
-                                <p className="text-sm text-muted-foreground">
+                                <p className="font-medium text-sm mt-1">
+                                  {bill.students?.name}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
                                   Kelas {bill.students?.class}
                                 </p>
                               </td>
-                              <td className="py-4 px-6">
-                                {
-                                  LAUNDRY_CATEGORIES[
-                                    bill.category as keyof typeof LAUNDRY_CATEGORIES
-                                  ]?.label
-                                }
+                              <td className="py-4 px-4">
+                                <p className="font-medium text-sm">
+                                  {
+                                    LAUNDRY_CATEGORIES[
+                                      bill.category as keyof typeof LAUNDRY_CATEGORIES
+                                    ]?.label
+                                  }
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {bill.category === "kiloan"
+                                    ? `${bill.weight_kg} kg`
+                                    : `${bill.item_count} pcs`}
+                                </p>
+                                <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
+                                  <Calendar className="h-3 w-3" />
+                                  {formatLaundryDate(bill.laundry_date)}
+                                </p>
                               </td>
-                              <td className="py-4 px-6">
-                                {formatCurrency(bill.total_price)}
-                              </td>
-                              <td className="py-4 px-6 text-muted-foreground">
-                                {formatCurrency(bill.admin_fee || 0)}
-                              </td>
-                              <td className="py-4 px-6 font-medium">
-                                {formatCurrency(
-                                  bill.total_price + (bill.admin_fee || 0),
+                              <td className="py-4 px-4">
+                                <p className="font-medium">
+                                  {formatCurrency(bill.total_price)}
+                                </p>
+                                {bill.admin_fee > 0 && (
+                                  <p className="text-xs text-muted-foreground">
+                                    + Admin {formatCurrency(bill.admin_fee)}
+                                  </p>
                                 )}
                               </td>
-                              <td className="py-4 px-6">
+                              <td className="py-4 px-4">
+                                <div className="space-y-1">
+                                  {bill.wadiah_used && bill.wadiah_used > 0 && (
+                                    <p className="text-xs text-amber-600 flex items-center gap-1">
+                                      <PiggyBank className="h-3 w-3" />
+                                      Wadiah: -
+                                      {formatCurrency(bill.wadiah_used)}
+                                    </p>
+                                  )}
+                                  {bill.rounding_applied &&
+                                    bill.rounding_applied > 0 && (
+                                      <p className="text-xs text-green-600">
+                                        Diskon: -
+                                        {formatCurrency(bill.rounding_applied)}
+                                      </p>
+                                    )}
+                                  {bill.paid_amount && (
+                                    <p className="text-xs text-muted-foreground flex items-center gap-1">
+                                      <Wallet className="h-3 w-3" />
+                                      Dibayar:{" "}
+                                      {formatCurrency(bill.paid_amount)}
+                                    </p>
+                                  )}
+                                  {bill.change_amount &&
+                                    bill.change_amount > 0 && (
+                                      <p className="text-xs text-blue-600">
+                                        Kembalian:{" "}
+                                        {formatCurrency(bill.change_amount)}
+                                      </p>
+                                    )}
+                                </div>
+                              </td>
+                              <td className="py-4 px-4">
                                 <span
-                                  className={`text-xs px-2 py-1 rounded-full ${
+                                  className={`text-xs px-2 py-1 rounded-full font-medium ${
                                     bill.payment_method === "cash" ||
                                     bill.payment_method === "manual"
-                                      ? "bg-green-100 text-green-700"
-                                      : "bg-muted"
+                                      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                                      : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
                                   }`}
                                 >
                                   {bill.payment_method === "cash"
-                                    ? "Tunai"
+                                    ? "💵 Tunai"
                                     : bill.payment_method === "manual"
-                                      ? "Manual"
+                                      ? "✋ Manual"
                                       : bill.payment_method === "qris"
-                                        ? "QRIS"
+                                        ? "📱 QRIS"
                                         : bill.payment_method?.includes("va") ||
                                             bill.payment_method ===
                                               "bank_transfer" ||
                                             bill.payment_method === "echannel"
-                                          ? "VA"
+                                          ? "🏦 Transfer"
                                           : bill.payment_method || "-"}
                                 </span>
+                                <div className="mt-1">
+                                  <StatusBadge status={bill.status} />
+                                </div>
                               </td>
-                              <td className="py-4 px-6">
-                                <StatusBadge status={bill.status} />
+                              <td className="py-4 px-4">
+                                {bill.paid_at ? (
+                                  <p className="text-sm">
+                                    {formatDateTime(bill.paid_at)}
+                                  </p>
+                                ) : (
+                                  <p className="text-sm text-muted-foreground">
+                                    {formatDate(bill.created_at)}
+                                  </p>
+                                )}
                               </td>
-                              <td className="py-4 px-6 text-muted-foreground">
-                                {formatDate(bill.created_at)}
+                              <td className="py-4 px-4">
+                                {bill.notes ? (
+                                  <div className="flex items-start gap-1.5 max-w-[200px]">
+                                    <FileText className="h-3.5 w-3.5 text-muted-foreground mt-0.5 flex-shrink-0" />
+                                    <p className="text-sm text-muted-foreground break-words">
+                                      {bill.notes}
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <p className="text-sm text-muted-foreground">
+                                    -
+                                  </p>
+                                )}
                               </td>
                             </tr>
                           ))}
