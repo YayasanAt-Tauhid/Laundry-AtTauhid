@@ -59,6 +59,7 @@ import {
   WadiahDepositDialog,
   type SyariahPaymentData,
 } from "@/components/syariah";
+import { CheckBalanceDialog } from "@/components/staff/CheckBalanceDialog";
 
 interface Bill {
   id: string;
@@ -144,6 +145,7 @@ export default function CashierPOS() {
   const [showSyariahPaymentDialog, setShowSyariahPaymentDialog] =
     useState(false);
   const [showWadiahDepositDialog, setShowWadiahDepositDialog] = useState(false);
+  const [showCheckBalanceDialog, setShowCheckBalanceDialog] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer">(
     "cash",
@@ -821,6 +823,13 @@ export default function CashierPOS() {
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
+              onClick={() => setShowCheckBalanceDialog(true)}
+            >
+              <Wallet className="h-4 w-4 mr-2" />
+              Cek Saldo
+            </Button>
+            <Button
+              variant="outline"
               onClick={() => setShowWadiahDepositDialog(true)}
               className="bg-gradient-to-r from-emerald-500/10 to-green-500/10 border-emerald-500/30 hover:bg-emerald-500/20"
             >
@@ -1465,6 +1474,12 @@ export default function CashierPOS() {
               searchBills(searchQuery, filterClass);
             }
           }}
+        />
+
+        {/* Check Balance Dialog */}
+        <CheckBalanceDialog
+          open={showCheckBalanceDialog}
+          onOpenChange={setShowCheckBalanceDialog}
         />
 
         {/* Wadiah Balance Card (shown when bills are selected) */}

@@ -27,9 +27,13 @@ import {
   AlertCircle,
   HelpCircle,
   RotateCcw,
+  FileText,
+  PiggyBank,
 } from "lucide-react";
 import { useBulkOrder } from "@/hooks/useBulkOrder";
 import { BulkOrderTable } from "@/components/bulk-order/BulkOrderTable";
+import { PrintBillingFormDialog } from "@/components/staff/PrintBillingFormDialog";
+import { CheckBalanceDialog } from "@/components/staff/CheckBalanceDialog";
 import { LAUNDRY_CATEGORIES } from "@/lib/constants";
 
 const formatCurrency = (amount: number) => {
@@ -67,6 +71,8 @@ export default function BulkOrderEntry() {
 
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
+  const [printFormDialogOpen, setPrintFormDialogOpen] = useState(false);
+  const [checkBalanceDialogOpen, setCheckBalanceDialogOpen] = useState(false);
   const [submitResult, setSubmitResult] = useState<{
     success: number;
     failed: number;
@@ -128,6 +134,22 @@ export default function BulkOrderEntry() {
           </div>
 
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPrintFormDialogOpen(true)}
+            >
+              <FileText className="h-4 w-4 mr-1" />
+              Cetak Form
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCheckBalanceDialogOpen(true)}
+            >
+              <PiggyBank className="h-4 w-4 mr-1" />
+              Cek Saldo
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -246,11 +268,22 @@ export default function BulkOrderEntry() {
                       Per Kategori:
                     </p>
                     <div className="flex flex-wrap gap-1">
-                      {Object.entries(summary.byCategory).map(([cat, count]) => (
-                        <Badge key={cat} variant="outline" className="text-xs">
-                          {LAUNDRY_CATEGORIES[cat as keyof typeof LAUNDRY_CATEGORIES]?.label}: {count}
-                        </Badge>
-                      ))}
+                      {Object.entries(summary.byCategory).map(
+                        ([cat, count]) => (
+                          <Badge
+                            key={cat}
+                            variant="outline"
+                            className="text-xs"
+                          >
+                            {
+                              LAUNDRY_CATEGORIES[
+                                cat as keyof typeof LAUNDRY_CATEGORIES
+                              ]?.label
+                            }
+                            : {count}
+                          </Badge>
+                        ),
+                      )}
                     </div>
                   </div>
                 )}
@@ -296,7 +329,7 @@ export default function BulkOrderEntry() {
                       Rata-rata per tagihan:{" "}
                       <span className="font-medium text-foreground">
                         {formatCurrency(
-                          Math.round(summary.totalPrice / summary.validCount)
+                          Math.round(summary.totalPrice / summary.validCount),
                         )}
                       </span>
                     </p>
@@ -357,7 +390,9 @@ export default function BulkOrderEntry() {
                         <li key={i}>{err}</li>
                       ))}
                       {submitResult.errors.length > 3 && (
-                        <li>...dan {submitResult.errors.length - 3} error lainnya</li>
+                        <li>
+                          ...dan {submitResult.errors.length - 3} error lainnya
+                        </li>
                       )}
                     </ul>
                   )}
@@ -400,7 +435,10 @@ export default function BulkOrderEntry() {
         </div>
 
         {/* Confirm Submit Dialog */}
-        <AlertDialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
+        <AlertDialog
+          open={confirmDialogOpen}
+          onOpenChange={setConfirmDialogOpen}
+        >
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>Konfirmasi Submit Tagihan</AlertDialogTitle>
@@ -409,8 +447,8 @@ export default function BulkOrderEntry() {
                 total {formatCurrency(summary.totalPrice)}.
                 <br />
                 <br />
-                Tagihan akan dikirim ke mitra untuk approval. Pastikan data sudah
-                benar sebelum melanjutkan.
+                Tagihan akan dikirim ke mitra untuk approval. Pastikan data
+                sudah benar sebelum melanjutkan.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -443,6 +481,18 @@ export default function BulkOrderEntry() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* Print Billing Form Dialog */}
+        <PrintBillingFormDialog
+          open={printFormDialogOpen}
+          onOpenChange={setPrintFormDialogOpen}
+        />
+
+        {/* Check Balance Dialog */}
+        <CheckBalanceDialog
+          open={checkBalanceDialogOpen}
+          onOpenChange={setCheckBalanceDialogOpen}
+        />
       </div>
     </DashboardLayout>
   );

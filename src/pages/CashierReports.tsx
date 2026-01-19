@@ -98,6 +98,7 @@ interface SummaryData {
   totalAmount: number;
   cashTransactions: number;
   cashAmount: number;
+  cashReceivedAmount: number; // Uang tunai yang benar-benar diterima dari customer
   transferTransactions: number;
   transferAmount: number;
   wadiahUsedTotal: number;
@@ -127,6 +128,7 @@ export default function CashierReports() {
     totalAmount: 0,
     cashTransactions: 0,
     cashAmount: 0,
+    cashReceivedAmount: 0,
     transferTransactions: 0,
     transferAmount: 0,
     wadiahUsedTotal: 0,
@@ -307,6 +309,7 @@ export default function CashierReports() {
         .select(
           `
                     total_price,
+                    paid_amount,
                     payment_method,
                     category,
                     wadiah_used,
@@ -348,6 +351,7 @@ export default function CashierReports() {
           totalAmount: 0,
           cashTransactions: 0,
           cashAmount: 0,
+          cashReceivedAmount: 0,
           transferTransactions: 0,
           transferAmount: 0,
           wadiahUsedTotal: 0,
@@ -360,6 +364,7 @@ export default function CashierReports() {
 
         (summaryRows || []).forEach((payment: Record<string, unknown>) => {
           const totalPrice = (payment.total_price as number) || 0;
+          const paidAmount = (payment.paid_amount as number) || 0;
           const paymentMethod = payment.payment_method as string;
           const wadiahUsed = (payment.wadiah_used as number) || 0;
           const category = payment.category as string;
@@ -371,6 +376,10 @@ export default function CashierReports() {
           if (paymentMethod === "cash") {
             currentSummary.cashTransactions++;
             currentSummary.cashAmount += totalPrice;
+            // Uang yang benar-benar diterima dari customer
+            // Jika paid_amount ada, gunakan itu. Jika tidak, gunakan (total_price - wadiah_used)
+            currentSummary.cashReceivedAmount +=
+              paidAmount > 0 ? paidAmount : totalPrice - wadiahUsed;
           } else {
             currentSummary.transferTransactions++;
             currentSummary.transferAmount += totalPrice;
@@ -882,7 +891,7 @@ export default function CashierReports() {
             <table style="width: 100%; border: none; margin: 0;">
               <tr style="background: none;">
                 <td style="border: none; padding: 5px 0;">Uang Tunai Diterima</td>
-                <td style="border: none; padding: 5px 0; text-align: right; font-weight: bold; color: #16a34a;">${formatCurrency(summary.cashAmount)}</td>
+                <td style="border: none; padding: 5px 0; text-align: right; font-weight: bold; color: #16a34a;">${formatCurrency(summary.cashReceivedAmount)}</td>
               </tr>
               ${
                 summary.manualDepositTotal > 0
@@ -906,7 +915,7 @@ export default function CashierReports() {
               }
               <tr style="background: none; border-top: 2px solid #9333ea;">
                 <td style="border: none; padding: 10px 0 5px; font-weight: bold; font-size: 14px;">Setor ke Rekening Operasional</td>
-                <td style="border: none; padding: 10px 0 5px; text-align: right; font-weight: bold; font-size: 16px; color: #7c3aed;">${formatCurrency(summary.cashAmount - summary.wadiahDepositTotal + summary.manualDepositTotal)}</td>
+                <td style="border: none; padding: 10px 0 5px; text-align: right; font-weight: bold; font-size: 16px; color: #7c3aed;">${formatCurrency(summary.cashReceivedAmount - summary.wadiahDepositTotal + summary.manualDepositTotal)}</td>
               </tr>
               ${
                 summary.wadiahDepositTotal > 0 || summary.manualDepositTotal > 0
@@ -1338,7 +1347,7 @@ export default function CashierReports() {
                         </div>
                       </div>
                       <p className="text-xl font-bold text-green-600">
-                        {formatCurrency(summary.cashAmount)}
+                        {formatCurrency(summary.cashReceivedAmount)}
                       </p>
                     </div>
 
@@ -1422,9 +1431,9 @@ export default function CashierReports() {
                             </p>
                           </div>
                         </div>
-                        <p className="text-2xl font-bold text-primary">
+                        <p className="text-xl font-bold text-primary">
                           {formatCurrency(
-                            summary.cashAmount -
+                            summary.cashReceivedAmount -
                               summary.wadiahDepositTotal +
                               summary.manualDepositTotal,
                           )}
@@ -1441,7 +1450,7 @@ export default function CashierReports() {
                             • Setor ke rekening operasional:{" "}
                             <span className="font-semibold text-foreground">
                               {formatCurrency(
-                                summary.cashAmount -
+                                summary.cashReceivedAmount -
                                   summary.wadiahDepositTotal +
                                   summary.manualDepositTotal,
                               )}

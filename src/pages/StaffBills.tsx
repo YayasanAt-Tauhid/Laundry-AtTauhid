@@ -24,7 +24,11 @@ import {
   ChevronRight,
   RefreshCw,
   Package,
+  FileText,
+  PiggyBank,
 } from "lucide-react";
+import { PrintBillingFormDialog } from "@/components/staff/PrintBillingFormDialog";
+import { CheckBalanceDialog } from "@/components/staff/CheckBalanceDialog";
 import {
   StaffBillsTable,
   type BillRow,
@@ -51,6 +55,8 @@ export default function StaffBills() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [currentPage, setCurrentPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
+  const [printFormDialogOpen, setPrintFormDialogOpen] = useState(false);
+  const [checkBalanceDialogOpen, setCheckBalanceDialogOpen] = useState(false);
 
   const fetchBills = useCallback(async () => {
     try {
@@ -194,6 +200,22 @@ export default function StaffBills() {
                 className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`}
               />
               Refresh
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPrintFormDialogOpen(true)}
+            >
+              <FileText className="h-4 w-4 mr-1" />
+              Cetak Form
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCheckBalanceDialogOpen(true)}
+            >
+              <PiggyBank className="h-4 w-4 mr-1" />
+              Cek Saldo
             </Button>
             <Button asChild>
               <Link to="/orders/bulk">
@@ -353,6 +375,18 @@ export default function StaffBills() {
             </div>
           )}
         </Card>
+
+        {/* Print Billing Form Dialog */}
+        <PrintBillingFormDialog
+          open={printFormDialogOpen}
+          onOpenChange={setPrintFormDialogOpen}
+        />
+
+        {/* Check Balance Dialog */}
+        <CheckBalanceDialog
+          open={checkBalanceDialogOpen}
+          onOpenChange={setCheckBalanceDialogOpen}
+        />
       </div>
     </DashboardLayout>
   );
