@@ -45,11 +45,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LAUNDRY_CATEGORIES, type LaundryCategory } from "@/lib/constants";
-import type {
-  BulkOrderRow,
-  Student,
-  Partner,
-} from "@/hooks/useBulkOrder";
+import type { BulkOrderRow, Student, Partner } from "@/hooks/useBulkOrder";
 
 interface BulkOrderTableProps {
   rows: BulkOrderRow[];
@@ -92,7 +88,7 @@ export function BulkOrderTable({
         if (currentRowIndex < rows.length - 1) {
           const nextRowId = rows[currentRowIndex + 1].id;
           const nextInput = document.querySelector(
-            `[data-row="${nextRowId}"][data-field="${field}"]`
+            `[data-row="${nextRowId}"][data-field="${field}"]`,
           ) as HTMLElement;
           nextInput?.focus();
         } else {
@@ -101,7 +97,7 @@ export function BulkOrderTable({
         }
       }
     },
-    [rows, onAddRow]
+    [rows, onAddRow],
   );
 
   if (isLoading) {
@@ -126,7 +122,7 @@ export function BulkOrderTable({
               <TableHead className="w-36">Mitra</TableHead>
               <TableHead className="w-32">Tanggal</TableHead>
               <TableHead className="w-32">Kategori</TableHead>
-              <TableHead className="w-24">Qty</TableHead>
+              <TableHead className="w-32">Qty</TableHead>
               <TableHead className="w-28 text-right">Harga</TableHead>
               <TableHead className="w-20 text-center">Aksi</TableHead>
             </TableRow>
@@ -172,7 +168,11 @@ interface BulkOrderRowComponentProps {
   onSetStudent: (rowId: string, student: Student | null) => void;
   onRemoveRow: (rowId: string) => void;
   onDuplicateRow: (rowId: string) => void;
-  onKeyDown: (e: KeyboardEvent<HTMLInputElement>, rowId: string, field: string) => void;
+  onKeyDown: (
+    e: KeyboardEvent<HTMLInputElement>,
+    rowId: string,
+    field: string,
+  ) => void;
   searchStudents: (query: string) => Student[];
 }
 
@@ -213,7 +213,9 @@ function BulkOrderRowComponent({
       {/* Row Number */}
       <TableCell className="text-center text-muted-foreground font-mono text-sm">
         <div className="flex items-center justify-center gap-1">
-          {row.isSubmitted && <CheckCircle2 className="h-3 w-3 text-green-600" />}
+          {row.isSubmitted && (
+            <CheckCircle2 className="h-3 w-3 text-green-600" />
+          )}
           {hasError && <AlertCircle className="h-3 w-3 text-red-500" />}
           {!row.isSubmitted && !hasError && row.isValid && (
             <Check className="h-3 w-3 text-green-600" />
@@ -234,7 +236,7 @@ function BulkOrderRowComponent({
               className={cn(
                 "w-full justify-between font-mono text-sm h-9",
                 getFieldError("student") && "border-red-500",
-                row.studentNik && "font-medium"
+                row.studentNik && "font-medium",
               )}
             >
               {row.studentNik || "NIK..."}
@@ -270,7 +272,9 @@ function BulkOrderRowComponent({
                       <Check
                         className={cn(
                           "ml-auto h-4 w-4",
-                          row.studentId === student.id ? "opacity-100" : "opacity-0"
+                          row.studentId === student.id
+                            ? "opacity-100"
+                            : "opacity-0",
                         )}
                       />
                     </CommandItem>
@@ -284,7 +288,9 @@ function BulkOrderRowComponent({
 
       {/* Nama (Read-only) */}
       <TableCell>
-        <span className={cn("text-sm", !row.studentName && "text-muted-foreground")}>
+        <span
+          className={cn("text-sm", !row.studentName && "text-muted-foreground")}
+        >
           {row.studentName || "-"}
         </span>
       </TableCell>
@@ -330,7 +336,7 @@ function BulkOrderRowComponent({
               className={cn(
                 "w-full justify-start text-left font-normal h-9 text-sm",
                 !row.laundryDate && "text-muted-foreground",
-                getFieldError("date") && "border-red-500"
+                getFieldError("date") && "border-red-500",
               )}
             >
               <CalendarIcon className="mr-2 h-3 w-3" />
@@ -413,8 +419,8 @@ function BulkOrderRowComponent({
               data-row={row.id}
               data-field="quantity"
               className={cn(
-                "h-9 w-16 text-right",
-                getFieldError("quantity") && "border-red-500"
+                "h-9 w-20 text-right",
+                getFieldError("quantity") && "border-red-500",
               )}
             />
             <span className="text-xs text-muted-foreground w-6">
