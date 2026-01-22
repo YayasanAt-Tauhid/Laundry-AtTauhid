@@ -93,6 +93,17 @@ export function useMidtrans() {
     try {
       // Call Supabase Edge Function (secure - server key stays on server)
       const totalWithFee = params.grossAmount + params.adminFee;
+
+      console.log("=== Calling Edge Function create-midtrans-token ===");
+      console.log("Request params:", {
+        orderId: params.orderId,
+        grossAmount: params.grossAmount,
+        adminFee: params.adminFee,
+        totalWithFee,
+        studentName: params.studentName,
+        category: params.category,
+      });
+
       const { data, error } = await supabase.functions.invoke(
         "create-midtrans-token",
         {
@@ -104,20 +115,52 @@ export function useMidtrans() {
         },
       );
 
+      console.log("Edge Function response:", { data, error });
+
       if (error) {
-        console.error("Edge function error:", error);
-        throw new Error(
-          "Gagal membuat token pembayaran. Pastikan Edge Function 'create-midtrans-token' sudah di-deploy dan MIDTRANS_SERVER_KEY sudah di-set di Supabase Secrets.",
-        );
+        console.error("=== Edge Function Error Details ===");
+        console.error("Error object:", error);
+        console.error("Error message:", error.message);
+        console.error("Error context:", error.context);
+
+        // Provide more specific error message based on error type
+        let errorMessage = "Gagal membuat token pembayaran. ";
+        if (
+          error.message?.includes("Failed to fetch") ||
+          error.message?.includes("NetworkError")
+        ) {
+          errorMessage +=
+            "Tidak dapat terhubung ke server. Periksa koneksi internet.";
+        } else if (
+          error.message?.includes("401") ||
+          error.message?.includes("Unauthorized")
+        ) {
+          errorMessage += "Autentikasi gagal. Pastikan Anda sudah login.";
+        } else if (error.message?.includes("404")) {
+          errorMessage +=
+            "Edge Function tidak ditemukan. Pastikan sudah di-deploy.";
+        } else if (error.message?.includes("500")) {
+          errorMessage +=
+            "Server error. Cek logs Edge Function di Supabase Dashboard.";
+        } else {
+          errorMessage += `Detail: ${error.message || JSON.stringify(error)}`;
+        }
+
+        throw new Error(errorMessage);
       }
 
       if (!data?.token) {
-        throw new Error("Token tidak diterima dari server");
+        console.error("No token in response. Data received:", data);
+        throw new Error(
+          "Token tidak diterima dari server. Response: " + JSON.stringify(data),
+        );
       }
 
+      console.log("=== Token created successfully ===");
       return data.token;
     } catch (error: any) {
-      console.error("Error creating snap token:", error);
+      console.error("=== createSnapToken Error ===");
+      console.error("Error:", error);
       throw error;
     }
   };

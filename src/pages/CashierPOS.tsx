@@ -691,112 +691,194 @@ export default function CashierPOS() {
   };
 
   const handlePrintReceipt = () => {
-    const printContent = receiptRef.current;
-    if (!printContent || !receipt) return;
-
-    // Build syariah-compliant receipt content
-    const syariahDetails = [];
-    if (receipt.wadiahUsed && receipt.wadiahUsed > 0) {
-      syariahDetails.push(
-        `Saldo Wadiah Digunakan: -${formatWadiahCurrency(receipt.wadiahUsed)}`,
-      );
-    }
-    if (receipt.roundingDiscount && receipt.roundingDiscount > 0) {
-      syariahDetails.push(
-        `Diskon Pembulatan (Sedekah): -${formatWadiahCurrency(receipt.roundingDiscount)}`,
-      );
-    }
-    if (receipt.wadiahDeposited && receipt.wadiahDeposited > 0) {
-      syariahDetails.push(
-        `Disimpan ke Saldo Wadiah: +${formatWadiahCurrency(receipt.wadiahDeposited)}`,
-      );
-    }
+    if (!receipt) return;
 
     const printWindow = window.open("", "_blank");
-    if (!printWindow) return;
+    if (!printWindow) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description:
+          "Tidak dapat membuka jendela cetak. Periksa pop-up blocker.",
+      });
+      return;
+    }
+
+    // Build items HTML
+    const itemsHtml = receipt.items
+      .map(
+        (item) => `
+        <div class="item">
+          <div class="item-name">${item.category}</div>
+          <div class="item-detail">
+            <span>${item.quantity}</span>
+            <span>${formatCurrency(item.price)}</span>
+          </div>
+        </div>
+      `,
+      )
+      .join("");
 
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
-        <head>
-          <title>Struk Pembayaran</title>
-          <style>
-            body {
-              font-family: 'Courier New', monospace;
-              font-size: 12px;
-              padding: 20px;
-              max-width: 300px;
-              margin: 0 auto;
+      <head>
+        <title>Kwitansi - ${receipt.receiptNumber}</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body {
+            font-family: 'Courier New', monospace;
+            padding: 10mm;
+            max-width: 80mm;
+            margin: 0 auto;
+          }
+          .receipt { width: 100%; }
+          .header { text-align: center; margin-bottom: 10px; border-bottom: 1px dashed #000; padding-bottom: 10px; }
+          .header h1 { font-size: 16px; font-weight: bold; }
+          .header p { font-size: 11px; margin-top: 4px; }
+          .info { margin: 10px 0; font-size: 11px; }
+          .info-row { display: flex; justify-content: space-between; margin: 3px 0; }
+          .divider { border-top: 1px dashed #000; margin: 10px 0; }
+          .items { margin: 10px 0; }
+          .item { font-size: 11px; margin: 5px 0; }
+          .item-name { font-weight: bold; }
+          .item-detail { display: flex; justify-content: space-between; }
+          .total-section { border-top: 1px dashed #000; padding-top: 10px; margin-top: 10px; }
+          .total-row { display: flex; justify-content: space-between; font-size: 12px; margin: 3px 0; }
+          .total-row.grand { font-size: 14px; font-weight: bold; margin-top: 5px; }
+          .total-row.syariah { color: #b45309; }
+          .total-row.discount { color: #059669; }
+          .total-row.change { color: #16a34a; font-weight: bold; }
+          .footer { text-align: center; margin-top: 15px; font-size: 10px; border-top: 1px dashed #000; padding-top: 10px; }
+          @media print {
+            body { padding: 0; }
+            @page { margin: 5mm; size: 80mm auto; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="receipt">
+          <div class="header">
+            <h1>LAUNDRY AT-TAUHID</h1>
+            <p>Pondok Pesantren At-Tauhid</p>
+            <p>Kwitansi Pembayaran</p>
+          </div>
+
+          <div class="info">
+            <div class="info-row">
+              <span>No. Kwitansi:</span>
+              <span>${receipt.receiptNumber}</span>
+            </div>
+            <div class="info-row">
+              <span>Tanggal:</span>
+              <span>${receipt.date}</span>
+            </div>
+            <div class="info-row">
+              <span>Waktu:</span>
+              <span>${receipt.time}</span>
+            </div>
+            <div class="info-row">
+              <span>Kasir:</span>
+              <span>${receipt.cashierName}</span>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="info">
+            <div class="info-row">
+              <span>Siswa:</span>
+              <span>${receipt.studentName}</span>
+            </div>
+            <div class="info-row">
+              <span>Kelas:</span>
+              <span>${receipt.studentClass}</span>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="items">
+            ${itemsHtml}
+          </div>
+
+          <div class="total-section">
+            <div class="total-row">
+              <span>Subtotal:</span>
+              <span>${formatCurrency(receipt.subtotal)}</span>
+            </div>
+            ${
+              receipt.wadiahUsed && receipt.wadiahUsed > 0
+                ? `
+            <div class="total-row syariah">
+              <span>Wadiah Digunakan:</span>
+              <span>- ${formatCurrency(receipt.wadiahUsed)}</span>
+            </div>
+            `
+                : ""
             }
-            .header {
-              text-align: center;
-              margin-bottom: 15px;
-              border-bottom: 1px dashed #000;
-              padding-bottom: 10px;
+            ${
+              receipt.roundingDiscount && receipt.roundingDiscount > 0
+                ? `
+            <div class="total-row discount">
+              <span>Diskon Pembulatan (Sedekah):</span>
+              <span>- ${formatCurrency(receipt.roundingDiscount)}</span>
+            </div>
+            `
+                : ""
             }
-            .header h1 {
-              font-size: 16px;
-              margin: 0;
+            <div class="total-row grand">
+              <span>TOTAL:</span>
+              <span>${formatCurrency(receipt.total)}</span>
+            </div>
+            <div class="total-row">
+              <span>Dibayar:</span>
+              <span>${formatCurrency(receipt.paidAmount)}</span>
+            </div>
+            ${
+              receipt.changeAmount > 0
+                ? `
+            <div class="total-row change">
+              <span>Kembalian:</span>
+              <span>${formatCurrency(receipt.changeAmount)}</span>
+            </div>
+            `
+                : ""
             }
-            .header p {
-              margin: 5px 0;
-              font-size: 11px;
+            ${
+              receipt.wadiahDeposited && receipt.wadiahDeposited > 0
+                ? `
+            <div class="total-row syariah">
+              <span>Disimpan ke Wadiah:</span>
+              <span>+ ${formatCurrency(receipt.wadiahDeposited)}</span>
+            </div>
+            `
+                : ""
             }
-            .info-row {
-              display: flex;
-              justify-content: space-between;
-              margin: 3px 0;
-            }
-            .divider {
-              border-top: 1px dashed #000;
-              margin: 10px 0;
-            }
-            .items-table {
-              width: 100%;
-              margin: 10px 0;
-            }
-            .items-table td {
-              padding: 3px 0;
-            }
-            .items-table .price {
-              text-align: right;
-            }
-            .total-section {
-              border-top: 1px dashed #000;
-              padding-top: 10px;
-              margin-top: 10px;
-            }
-            .total-row {
-              display: flex;
-              justify-content: space-between;
-              margin: 5px 0;
-            }
-            .total-row.grand-total {
-              font-weight: bold;
-              font-size: 14px;
-            }
-            .footer {
-              text-align: center;
-              margin-top: 20px;
-              padding-top: 10px;
-              border-top: 1px dashed #000;
-              font-size: 11px;
-            }
-            @media print {
-              body { print-color-adjust: exact; }
-            }
-          </style>
-        </head>
-        <body>
-          ${printContent.innerHTML}
-        </body>
+            <div class="total-row">
+              <span>Metode:</span>
+              <span>${receipt.paymentMethod}</span>
+            </div>
+          </div>
+
+          <div class="footer">
+            <p>Terima kasih atas pembayaran Anda!</p>
+            <p>Transaksi Sesuai Syariah</p>
+            <p style="margin-top: 8px;">--- LUNAS ---</p>
+          </div>
+        </div>
+        <script>
+          window.onload = function() {
+            window.print();
+            window.onafterprint = function() {
+              window.close();
+            };
+          };
+        </script>
+      </body>
       </html>
     `);
-
     printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
-    printWindow.close();
   };
 
   const quickAmounts = [50000, 100000, 150000, 200000, 500000];

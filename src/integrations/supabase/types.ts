@@ -612,6 +612,38 @@ export type Database = {
           };
         };
       };
+      parent_use_wadiah_for_payment: {
+        Args: {
+          p_student_id: string;
+          p_order_id: string;
+          p_amount: number;
+        };
+        Returns: {
+          success: boolean;
+          error?: string;
+          transaction_id?: string;
+          amount_used?: number;
+          balance_before?: number;
+          balance_after?: number;
+          order_id?: string;
+        };
+      };
+      parent_pay_order_with_wadiah: {
+        Args: {
+          p_student_id: string;
+          p_order_id: string;
+          p_wadiah_amount: number;
+        };
+        Returns: {
+          success: boolean;
+          error?: string;
+          payment_complete?: boolean;
+          wadiah_used?: number;
+          remaining_amount?: number;
+          order_status?: string;
+          message?: string;
+        };
+      };
     };
     Enums: {
       app_role: "admin" | "parent" | "staff" | "partner" | "cashier";

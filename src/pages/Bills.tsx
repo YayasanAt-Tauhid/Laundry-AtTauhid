@@ -1,13 +1,24 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useMidtrans } from "@/hooks/useMidtrans";
+import { useWadiah } from "@/hooks/useWadiah";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Receipt,
   Loader2,
@@ -22,6 +33,8 @@ import {
   Wallet,
   Calendar,
   FileText,
+  Banknote,
+  ArrowRight,
 } from "lucide-react";
 import {
   LAUNDRY_CATEGORIES,
@@ -82,6 +95,10 @@ export default function Bills() {
     isProcessing,
     getEstimatedAdminFee,
   } = useMidtrans();
+
+  // Wadiah hook (only for formatting, actual payment uses secure RPC function)
+  const { formatCurrency: formatWadiahCurrency } = useWadiah();
+
   const [unpaidBills, setUnpaidBills] = useState<Bill[]>([]);
   const [paidBills, setPaidBills] = useState<Bill[]>([]);
   const [loading, setLoading] = useState(true);
@@ -94,6 +111,19 @@ export default function Bills() {
     StudentWadiahBalance[]
   >([]);
 
+  // Wadiah Payment Dialog State
+  const [showWadiahPaymentDialog, setShowWadiahPaymentDialog] = useState(false);
+  const [selectedBillForWadiah, setSelectedBillForWadiah] =
+    useState<Bill | null>(null);
+  const [useWadiahBalance, setUseWadiahBalance] = useState(true);
+  const [wadiahAmountToUse, setWadiahAmountToUse] = useState<number>(0);
+  const [isProcessingWadiah, setIsProcessingWadiah] = useState(false);
+
+  // Bulk Wadiah Payment Dialog State
+  const [showBulkWadiahDialog, setShowBulkWadiahDialog] = useState(false);
+  const [bulkUseWadiah, setBulkUseWadiah] = useState(true);
+  const [bulkWadiahAmount, setBulkWadiahAmount] = useState<number>(0);
+
   useEffect(() => {
     fetchBills();
   }, [paidPage]);
@@ -101,8 +131,7 @@ export default function Bills() {
   const fetchBills = async () => {
     try {
       setLoading(true);
-
-      // Fetch all unpaid bills (no pagination - users need to see all)
+      // Fetch unpaid bills (no pagination for unpaid)
       const { data: unpaidData, error: unpaidError } = await supabase
         .from("laundry_orders")
         .select(
@@ -128,12 +157,13 @@ export default function Bills() {
         `,
         )
         .in("status", ["DISETUJUI_MITRA", "MENUNGGU_PEMBAYARAN"])
-        .order("laundry_date", { ascending: false });
+        .order("created_at", { ascending: false });
 
       if (unpaidError) throw unpaidError;
+
       setUnpaidBills(unpaidData || []);
 
-      // Fetch paginated paid bills
+      // Fetch paid bills with pagination
       const from = paidPage * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
 
@@ -171,6 +201,7 @@ export default function Bills() {
         .range(from, to);
 
       if (paidError) throw paidError;
+
       setPaidBills(paidData || []);
       setPaidBillsCount(count || 0);
 
@@ -220,6 +251,324 @@ export default function Bills() {
     }
   };
 
+  // Open Wadiah Payment Dialog
+  const openWadiahPaymentDialog = (bill: Bill) => {
+    setSelectedBillForWadiah(bill);
+    const studentBalance = getStudentBalance(bill.students?.id);
+    const maxUsable = Math.min(studentBalance, bill.total_price);
+    setWadiahAmountToUse(maxUsable);
+    setUseWadiahBalance(maxUsable > 0);
+    setShowWadiahPaymentDialog(true);
+  };
+
+  // Handle Wadiah Payment for single bill using secure database function
+  const handleWadiahPayment = async () => {
+    if (!selectedBillForWadiah) return;
+
+    const bill = selectedBillForWadiah;
+    const studentId = bill.students?.id;
+
+    if (!studentId) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Data siswa tidak ditemukan",
+      });
+      return;
+    }
+
+    setIsProcessingWadiah(true);
+
+    try {
+      const wadiahToUse = useWadiahBalance ? wadiahAmountToUse : 0;
+      const remainingAmount = bill.total_price - wadiahToUse;
+
+      if (wadiahToUse <= 0) {
+        // No wadiah to use, just go to Midtrans
+        setShowWadiahPaymentDialog(false);
+        setSelectedBillForWadiah(null);
+        handlePayment(bill);
+        return;
+      }
+
+      // Use secure database function for wadiah payment
+      const { data, error } = await supabase.rpc(
+        "parent_pay_order_with_wadiah",
+        {
+          p_student_id: studentId,
+          p_order_id: bill.id,
+          p_wadiah_amount: wadiahToUse,
+        },
+      );
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      const result = data as {
+        success: boolean;
+        error?: string;
+        payment_complete?: boolean;
+        wadiah_used?: number;
+        remaining_amount?: number;
+        message?: string;
+      };
+
+      if (!result.success) {
+        throw new Error(result.error || "Gagal menggunakan saldo wadiah");
+      }
+
+      // If payment is complete (wadiah covers full amount)
+      if (result.payment_complete) {
+        toast({
+          title: "Pembayaran Berhasil",
+          description: `Tagihan ${formatCurrency(bill.total_price)} dibayar penuh dengan saldo wadiah`,
+        });
+
+        setShowWadiahPaymentDialog(false);
+        setSelectedBillForWadiah(null);
+        fetchBills();
+      } else {
+        // Partial payment - need to pay remaining via Midtrans
+        toast({
+          title: "Saldo Wadiah Digunakan",
+          description:
+            result.message ||
+            `Wadiah ${formatCurrency(wadiahToUse)} digunakan. Lanjutkan pembayaran sisa.`,
+        });
+
+        setShowWadiahPaymentDialog(false);
+        setSelectedBillForWadiah(null);
+
+        // Process remaining amount via Midtrans
+        setPayingBillId(bill.id);
+
+        await processPayment(
+          {
+            orderId: bill.id,
+            grossAmount: remainingAmount,
+            studentName: bill.students?.name || "Unknown",
+            category:
+              LAUNDRY_CATEGORIES[
+                bill.category as keyof typeof LAUNDRY_CATEGORIES
+              ]?.label || bill.category,
+            customerEmail: profile?.email || undefined,
+            customerPhone: profile?.phone || undefined,
+            customerName: profile?.full_name || undefined,
+          },
+          () => {
+            // onSuccess
+            fetchBills();
+            setPayingBillId(null);
+          },
+          () => {
+            // onPending
+            fetchBills();
+            setPayingBillId(null);
+          },
+        );
+
+        setPayingBillId(null);
+      }
+    } catch (error: unknown) {
+      console.error("Error processing wadiah payment:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description:
+          error instanceof Error ? error.message : "Gagal memproses pembayaran",
+      });
+    } finally {
+      setIsProcessingWadiah(false);
+    }
+  };
+
+  // Open Bulk Wadiah Dialog
+  const openBulkWadiahDialog = () => {
+    if (selectedBills.size === 0) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Pilih minimal satu tagihan untuk dibayar",
+      });
+      return;
+    }
+
+    const totalWadiahAvailable = getTotalWadiahForSelectedBills();
+    const maxUsable = Math.min(totalWadiahAvailable, selectedTotal);
+    setBulkWadiahAmount(maxUsable);
+    setBulkUseWadiah(maxUsable > 0);
+    setShowBulkWadiahDialog(true);
+  };
+
+  // Handle Bulk Wadiah Payment using secure database function
+  const handleBulkWadiahPayment = async () => {
+    if (selectedBills.size === 0) return;
+
+    setIsProcessingWadiah(true);
+
+    try {
+      const selectedBillsList = unpaidBills.filter((b) =>
+        selectedBills.has(b.id),
+      );
+      const totalAmount = selectedBillsList.reduce(
+        (sum, b) => sum + b.total_price,
+        0,
+      );
+      const wadiahToUse = bulkUseWadiah ? bulkWadiahAmount : 0;
+      const remainingAmount = totalAmount - wadiahToUse;
+
+      if (wadiahToUse <= 0) {
+        // No wadiah to use, just go to bulk Midtrans payment
+        setShowBulkWadiahDialog(false);
+        handleBulkPayment();
+        return;
+      }
+
+      // Group bills by student for wadiah deduction
+      const billsByStudent = new Map<string, Bill[]>();
+      selectedBillsList.forEach((bill) => {
+        const studentId = bill.students?.id;
+        if (studentId) {
+          if (!billsByStudent.has(studentId)) {
+            billsByStudent.set(studentId, []);
+          }
+          billsByStudent.get(studentId)!.push(bill);
+        }
+      });
+
+      // Process wadiah for each student using secure function
+      let totalWadiahUsed = 0;
+      let allFullyPaid = true;
+      const processedBills: string[] = [];
+
+      for (const [studentId, bills] of billsByStudent) {
+        const studentBalance = getStudentBalance(studentId);
+        const studentTotal = bills.reduce((sum, b) => sum + b.total_price, 0);
+        const wadiahForStudent = Math.min(
+          studentBalance,
+          studentTotal,
+          wadiahToUse - totalWadiahUsed,
+        );
+
+        if (wadiahForStudent > 0) {
+          // Process each bill for this student
+          for (const bill of bills) {
+            const billWadiahPortion = Math.min(
+              Math.round((bill.total_price / studentTotal) * wadiahForStudent),
+              bill.total_price,
+            );
+
+            if (billWadiahPortion > 0) {
+              // Use secure database function
+              const { data, error } = await supabase.rpc(
+                "parent_pay_order_with_wadiah",
+                {
+                  p_student_id: studentId,
+                  p_order_id: bill.id,
+                  p_wadiah_amount: billWadiahPortion,
+                },
+              );
+
+              if (error) {
+                console.error(
+                  `Error processing wadiah for bill ${bill.id}:`,
+                  error,
+                );
+                continue;
+              }
+
+              const result = data as {
+                success: boolean;
+                error?: string;
+                payment_complete?: boolean;
+                wadiah_used?: number;
+              };
+
+              if (result.success) {
+                totalWadiahUsed += result.wadiah_used || billWadiahPortion;
+                processedBills.push(bill.id);
+
+                if (!result.payment_complete) {
+                  allFullyPaid = false;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // If all bills are fully paid with wadiah
+      if (allFullyPaid && totalWadiahUsed >= totalAmount) {
+        toast({
+          title: "Pembayaran Berhasil",
+          description: `${selectedBillsList.length} tagihan (${formatCurrency(totalAmount)}) dibayar dengan saldo wadiah`,
+        });
+
+        setShowBulkWadiahDialog(false);
+        setSelectedBills(new Set());
+        fetchBills();
+      } else {
+        // Partial payment - need to pay remaining via Midtrans
+        toast({
+          title: "Saldo Wadiah Digunakan",
+          description: `Wadiah ${formatCurrency(totalWadiahUsed)} digunakan. Lanjutkan pembayaran sisa.`,
+        });
+
+        setShowBulkWadiahDialog(false);
+
+        // Filter out fully paid bills from Midtrans payment
+        const unpaidOrderIds = selectedBillsList
+          .filter((b) => !processedBills.includes(b.id) || remainingAmount > 0)
+          .map((b) => b.id);
+
+        if (unpaidOrderIds.length > 0 && remainingAmount > 0) {
+          setIsPayingAll(true);
+
+          const studentNames = [
+            ...new Set(selectedBillsList.map((b) => b.students?.name)),
+          ].join(", ");
+
+          await processBulkPayment(
+            {
+              orderIds: unpaidOrderIds,
+              grossAmount: remainingAmount,
+              description: `Pembayaran ${selectedBillsList.length} tagihan laundry (setelah potongan wadiah ${formatCurrency(totalWadiahUsed)})`,
+              studentNames: studentNames,
+              customerEmail: profile?.email || undefined,
+              customerPhone: profile?.phone || undefined,
+              customerName: profile?.full_name || undefined,
+            },
+            () => {
+              fetchBills();
+              setSelectedBills(new Set());
+              setIsPayingAll(false);
+            },
+            () => {
+              fetchBills();
+              setIsPayingAll(false);
+            },
+          );
+
+          setIsPayingAll(false);
+        } else {
+          setSelectedBills(new Set());
+          fetchBills();
+        }
+      }
+    } catch (error: unknown) {
+      console.error("Error processing bulk wadiah payment:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description:
+          error instanceof Error ? error.message : "Gagal memproses pembayaran",
+      });
+    } finally {
+      setIsProcessingWadiah(false);
+    }
+  };
+
   const handlePayment = async (bill: Bill) => {
     setPayingBillId(bill.id);
 
@@ -250,7 +599,7 @@ export default function Bills() {
     setPayingBillId(null);
   };
 
-  // Handle bulk payment for selected bills
+  // Handle bulk payment for selected bills (without wadiah)
   const handleBulkPayment = async () => {
     if (selectedBills.size === 0) {
       toast({
@@ -314,7 +663,7 @@ export default function Bills() {
     setSelectedBills(newSelected);
   };
 
-  // Select/Deselect all unpaid bills
+  // Toggle select all bills
   const toggleSelectAll = () => {
     if (selectedBills.size === unpaidBills.length) {
       setSelectedBills(new Set());
@@ -334,7 +683,7 @@ export default function Bills() {
   const formatDate = (date: string) => {
     return new Date(date).toLocaleDateString("id-ID", {
       day: "numeric",
-      month: "short",
+      month: "long",
       year: "numeric",
     });
   };
@@ -342,7 +691,7 @@ export default function Bills() {
   const formatDateTime = (date: string) => {
     return new Date(date).toLocaleDateString("id-ID", {
       day: "numeric",
-      month: "short",
+      month: "long",
       year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
@@ -364,11 +713,21 @@ export default function Bills() {
     });
   };
 
+  // Calculate total wadiah available for selected bills
+  const getTotalWadiahForSelectedBills = (): number => {
+    const selectedBillsList = unpaidBills.filter((b) =>
+      selectedBills.has(b.id),
+    );
+    const studentIds = [
+      ...new Set(selectedBillsList.map((b) => b.students?.id).filter(Boolean)),
+    ];
+    return studentIds.reduce((sum, id) => sum + getStudentBalance(id), 0);
+  };
+
   const totalUnpaid = unpaidBills.reduce((sum, b) => sum + b.total_price, 0);
   const selectedTotal = unpaidBills
     .filter((b) => selectedBills.has(b.id))
     .reduce((sum, b) => sum + b.total_price, 0);
-  const allBills = [...unpaidBills, ...paidBills];
 
   // Cashier doesn't pay admin fee
   const isCashier = userRole === "cashier";
@@ -384,6 +743,63 @@ export default function Bills() {
     if (isCashier) return "Tanpa biaya admin";
     return amount < QRIS_MAX_AMOUNT ? "QRIS (0.7%)" : "VA (Rp 4.400)";
   };
+
+  // Calculate amounts for single bill wadiah dialog
+  const singleBillWadiahInfo = useMemo(() => {
+    if (!selectedBillForWadiah) return null;
+    const studentBalance = getStudentBalance(
+      selectedBillForWadiah.students?.id,
+    );
+    const totalAmount = selectedBillForWadiah.total_price;
+    const wadiahToUse = useWadiahBalance ? wadiahAmountToUse : 0;
+    const remainingAmount = Math.max(0, totalAmount - wadiahToUse);
+    const canPayFullWithWadiah = studentBalance >= totalAmount;
+    const adminFee = isCashier
+      ? 0
+      : remainingAmount > 0
+        ? getEstimatedAdminFee(remainingAmount)
+        : 0;
+
+    return {
+      studentBalance,
+      totalAmount,
+      wadiahToUse,
+      remainingAmount,
+      canPayFullWithWadiah,
+      adminFee,
+      finalTotal: remainingAmount + adminFee,
+    };
+  }, [selectedBillForWadiah, useWadiahBalance, wadiahAmountToUse, isCashier]);
+
+  // Calculate amounts for bulk wadiah dialog
+  const bulkWadiahInfo = useMemo(() => {
+    const totalAmount = selectedTotal;
+    const totalWadiahAvailable = getTotalWadiahForSelectedBills();
+    const wadiahToUse = bulkUseWadiah ? bulkWadiahAmount : 0;
+    const remainingAmount = Math.max(0, totalAmount - wadiahToUse);
+    const canPayFullWithWadiah = totalWadiahAvailable >= totalAmount;
+    const adminFee = isCashier
+      ? 0
+      : remainingAmount > 0
+        ? getEstimatedAdminFee(remainingAmount)
+        : 0;
+
+    return {
+      totalWadiahAvailable,
+      totalAmount,
+      wadiahToUse,
+      remainingAmount,
+      canPayFullWithWadiah,
+      adminFee,
+      finalTotal: remainingAmount + adminFee,
+    };
+  }, [
+    selectedTotal,
+    bulkUseWadiah,
+    bulkWadiahAmount,
+    isCashier,
+    selectedBills,
+  ]);
 
   return (
     <DashboardLayout>
@@ -433,7 +849,8 @@ export default function Bills() {
                     ))}
                 </div>
                 <p className="text-xs text-muted-foreground mt-3">
-                  💡 Saldo wadiah dapat digunakan untuk pembayaran di kasir
+                  💡 Saldo wadiah dapat digunakan untuk membayar tagihan dengan
+                  klik tombol "Bayar dengan Wadiah"
                 </p>
               </CardContent>
             </Card>
@@ -469,6 +886,13 @@ export default function Bills() {
                           {formatCurrency(selectedTotal)}
                         </span>
                       </p>
+                      {getTotalWadiahForSelectedBills() > 0 && (
+                        <p className="text-xs text-amber-600 flex items-center justify-end gap-1">
+                          <PiggyBank className="h-3 w-3" />
+                          Saldo wadiah tersedia:{" "}
+                          {formatCurrency(getTotalWadiahForSelectedBills())}
+                        </p>
+                      )}
                       {!isCashier && (
                         <div className="flex items-center gap-1 text-xs text-muted-foreground">
                           <span>
@@ -499,7 +923,7 @@ export default function Bills() {
                       </p>
                     </div>
                   )}
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap justify-end">
                     <Button
                       variant="outline"
                       size="sm"
@@ -510,6 +934,21 @@ export default function Bills() {
                         ? "Batal Pilih"
                         : "Pilih Semua"}
                     </Button>
+                    {getTotalWadiahForSelectedBills() > 0 &&
+                      selectedBills.size > 0 && (
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={openBulkWadiahDialog}
+                          disabled={
+                            isPayingAll || isProcessing || isProcessingWadiah
+                          }
+                          className="bg-amber-600 hover:bg-amber-700"
+                        >
+                          <PiggyBank className="h-4 w-4 mr-2" />
+                          Bayar dengan Wadiah
+                        </Button>
+                      )}
                     <Button
                       onClick={handleBulkPayment}
                       disabled={
@@ -523,7 +962,7 @@ export default function Bills() {
                       )}
                       {isPayingAll
                         ? "Memproses..."
-                        : `Bayar Sekaligus (${selectedBills.size})`}
+                        : `Bayar Online (${selectedBills.size})`}
                     </Button>
                   </div>
                 </div>
@@ -536,7 +975,7 @@ export default function Bills() {
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
-        ) : allBills.length === 0 ? (
+        ) : unpaidBills.length === 0 && paidBills.length === 0 ? (
           <Card className="dashboard-card">
             <CardContent className="flex flex-col items-center justify-center py-12">
               <Receipt className="h-16 w-16 text-muted-foreground/30 mb-4" />
@@ -544,7 +983,7 @@ export default function Bills() {
                 Belum ada tagihan
               </h3>
               <p className="text-muted-foreground text-center">
-                Tagihan akan muncul setelah order laundry disetujui mitra
+                Tagihan akan muncul setelah order laundry dibuat
               </p>
             </CardContent>
           </Card>
@@ -562,6 +1001,9 @@ export default function Bills() {
                     const adminFee = isCashier
                       ? 0
                       : getEstimatedAdminFee(bill.total_price);
+                    const studentBalance = getStudentBalance(bill.students?.id);
+                    const hasWadiah = studentBalance > 0;
+
                     return (
                       <Card
                         key={bill.id}
@@ -584,7 +1026,7 @@ export default function Bills() {
                                 className="mt-1"
                               />
                               <div className="space-y-2">
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
                                   <span className="font-mono text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
                                     {bill.students?.nik}
                                   </span>
@@ -594,6 +1036,12 @@ export default function Bills() {
                                   <span className="text-sm text-muted-foreground">
                                     Kelas {bill.students?.class}
                                   </span>
+                                  {hasWadiah && (
+                                    <span className="text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                      <PiggyBank className="h-3 w-3" />
+                                      {formatCurrency(studentBalance)}
+                                    </span>
+                                  )}
                                 </div>
                                 <div className="flex flex-wrap gap-4 text-sm">
                                   <span className="text-muted-foreground">
@@ -624,7 +1072,7 @@ export default function Bills() {
                                   {formatCurrency(bill.total_price)}
                                 </p>
                                 {!isCashier && (
-                                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                  <div className="flex items-center gap-1 text-xs text-muted-foreground justify-end">
                                     <span>
                                       + Admin: {formatCurrency(adminFee)}
                                     </span>
@@ -655,8 +1103,27 @@ export default function Bills() {
                                 <StatusBadge status={bill.status} />
                               </div>
                               <div className="flex flex-col gap-2">
+                                {hasWadiah && (
+                                  <Button
+                                    variant="default"
+                                    size="sm"
+                                    onClick={() =>
+                                      openWadiahPaymentDialog(bill)
+                                    }
+                                    disabled={
+                                      payingBillId === bill.id ||
+                                      isProcessing ||
+                                      isProcessingWadiah
+                                    }
+                                    className="bg-amber-600 hover:bg-amber-700"
+                                  >
+                                    <PiggyBank className="h-4 w-4 mr-2" />
+                                    Pakai Wadiah
+                                  </Button>
+                                )}
                                 <Button
                                   variant="outline"
+                                  size="sm"
                                   onClick={() => handlePayment(bill)}
                                   disabled={
                                     payingBillId === bill.id || isProcessing
@@ -669,11 +1136,11 @@ export default function Bills() {
                                   )}
                                   {payingBillId === bill.id
                                     ? "Memproses..."
-                                    : "Bayar"}
+                                    : "Bayar Online"}
                                 </Button>
                                 {userRole === "cashier" && (
                                   <Button
-                                    variant="default"
+                                    variant="secondary"
                                     size="sm"
                                     onClick={async () => {
                                       setPayingBillId(bill.id);
@@ -681,7 +1148,7 @@ export default function Bills() {
                                         await confirmPaymentManually(
                                           bill.id,
                                           "cash",
-                                          true, // isCashPayment - no admin fee for cash at cashier
+                                          true,
                                         );
                                       if (success) fetchBills();
                                       setPayingBillId(null);
@@ -691,7 +1158,7 @@ export default function Bills() {
                                     }
                                   >
                                     <CheckCircle2 className="h-4 w-4 mr-2" />
-                                    Bayar Tunai
+                                    Tunai
                                   </Button>
                                 )}
                               </div>
@@ -804,13 +1271,14 @@ export default function Bills() {
                                         {formatCurrency(bill.rounding_applied)}
                                       </p>
                                     )}
-                                  {bill.paid_amount && (
-                                    <p className="text-xs text-muted-foreground flex items-center gap-1">
-                                      <Wallet className="h-3 w-3" />
-                                      Dibayar:{" "}
-                                      {formatCurrency(bill.paid_amount)}
-                                    </p>
-                                  )}
+                                  {bill.paid_amount !== null &&
+                                    bill.paid_amount > 0 && (
+                                      <p className="text-xs text-muted-foreground flex items-center gap-1">
+                                        <Wallet className="h-3 w-3" />
+                                        Dibayar:{" "}
+                                        {formatCurrency(bill.paid_amount)}
+                                      </p>
+                                    )}
                                   {bill.change_amount &&
                                     bill.change_amount > 0 && (
                                       <p className="text-xs text-blue-600">
@@ -826,21 +1294,27 @@ export default function Bills() {
                                     bill.payment_method === "cash" ||
                                     bill.payment_method === "manual"
                                       ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                                      : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                                      : bill.payment_method === "wadiah"
+                                        ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                                        : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
                                   }`}
                                 >
                                   {bill.payment_method === "cash"
                                     ? "💵 Tunai"
                                     : bill.payment_method === "manual"
                                       ? "✋ Manual"
-                                      : bill.payment_method === "qris"
-                                        ? "📱 QRIS"
-                                        : bill.payment_method?.includes("va") ||
-                                            bill.payment_method ===
-                                              "bank_transfer" ||
-                                            bill.payment_method === "echannel"
-                                          ? "🏦 Transfer"
-                                          : bill.payment_method || "-"}
+                                      : bill.payment_method === "wadiah"
+                                        ? "🏦 Wadiah"
+                                        : bill.payment_method === "qris"
+                                          ? "📱 QRIS"
+                                          : bill.payment_method?.includes(
+                                                "va",
+                                              ) ||
+                                              bill.payment_method ===
+                                                "bank_transfer" ||
+                                              bill.payment_method === "echannel"
+                                            ? "🏦 Transfer"
+                                            : bill.payment_method || "-"}
                                 </span>
                                 <div className="mt-1">
                                   <StatusBadge status={bill.status} />
@@ -922,6 +1396,404 @@ export default function Bills() {
             )}
           </div>
         )}
+
+        {/* Single Bill Wadiah Payment Dialog */}
+        <Dialog
+          open={showWadiahPaymentDialog}
+          onOpenChange={setShowWadiahPaymentDialog}
+        >
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <PiggyBank className="h-5 w-5 text-amber-600" />
+                Bayar dengan Wadiah
+              </DialogTitle>
+              <DialogDescription>
+                Gunakan saldo wadiah untuk membayar tagihan
+              </DialogDescription>
+            </DialogHeader>
+
+            {selectedBillForWadiah && singleBillWadiahInfo && (
+              <div className="space-y-4">
+                {/* Bill Info */}
+                <div className="p-3 rounded-lg bg-muted/50 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Siswa</span>
+                    <span className="font-medium">
+                      {selectedBillForWadiah.students?.name}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Kelas</span>
+                    <span>{selectedBillForWadiah.students?.class}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Kategori</span>
+                    <span>
+                      {
+                        LAUNDRY_CATEGORIES[
+                          selectedBillForWadiah.category as keyof typeof LAUNDRY_CATEGORIES
+                        ]?.label
+                      }
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm font-medium border-t pt-2">
+                    <span>Total Tagihan</span>
+                    <span className="text-primary">
+                      {formatCurrency(singleBillWadiahInfo.totalAmount)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Wadiah Balance */}
+                <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Wallet className="h-4 w-4 text-amber-600" />
+                      <span className="text-sm font-medium">Saldo Wadiah</span>
+                    </div>
+                    <span className="font-bold text-amber-600">
+                      {formatCurrency(singleBillWadiahInfo.studentBalance)}
+                    </span>
+                  </div>
+                  {singleBillWadiahInfo.canPayFullWithWadiah && (
+                    <p className="text-xs text-amber-600 mt-2 flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3" />
+                      Saldo mencukupi untuk bayar penuh!
+                    </p>
+                  )}
+                </div>
+
+                {/* Use Wadiah Toggle */}
+                <div className="flex items-start gap-3 p-3 rounded-lg border">
+                  <Checkbox
+                    id="use-wadiah-single"
+                    checked={useWadiahBalance}
+                    onCheckedChange={(checked) =>
+                      setUseWadiahBalance(checked as boolean)
+                    }
+                    className="mt-0.5"
+                  />
+                  <div className="flex-1">
+                    <Label
+                      htmlFor="use-wadiah-single"
+                      className="cursor-pointer"
+                    >
+                      Gunakan Saldo Wadiah
+                    </Label>
+                    {useWadiahBalance && (
+                      <div className="mt-2">
+                        <Label
+                          htmlFor="wadiah-amount-single"
+                          className="text-xs text-muted-foreground"
+                        >
+                          Jumlah yang digunakan
+                        </Label>
+                        <Input
+                          id="wadiah-amount-single"
+                          type="number"
+                          value={wadiahAmountToUse}
+                          onChange={(e) => {
+                            const val = Math.min(
+                              Math.max(0, Number(e.target.value)),
+                              Math.min(
+                                singleBillWadiahInfo.studentBalance,
+                                singleBillWadiahInfo.totalAmount,
+                              ),
+                            );
+                            setWadiahAmountToUse(val);
+                          }}
+                          max={Math.min(
+                            singleBillWadiahInfo.studentBalance,
+                            singleBillWadiahInfo.totalAmount,
+                          )}
+                          className="mt-1"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Maks:{" "}
+                          {formatCurrency(
+                            Math.min(
+                              singleBillWadiahInfo.studentBalance,
+                              singleBillWadiahInfo.totalAmount,
+                            ),
+                          )}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Payment Summary */}
+                <div className="p-3 rounded-lg bg-muted/50 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Total Tagihan</span>
+                    <span>
+                      {formatCurrency(singleBillWadiahInfo.totalAmount)}
+                    </span>
+                  </div>
+                  {singleBillWadiahInfo.wadiahToUse > 0 && (
+                    <div className="flex justify-between text-sm text-amber-600">
+                      <span>Wadiah Digunakan</span>
+                      <span>
+                        - {formatCurrency(singleBillWadiahInfo.wadiahToUse)}
+                      </span>
+                    </div>
+                  )}
+                  {singleBillWadiahInfo.remainingAmount > 0 && (
+                    <>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">
+                          Sisa Tagihan
+                        </span>
+                        <span>
+                          {formatCurrency(singleBillWadiahInfo.remainingAmount)}
+                        </span>
+                      </div>
+                      {!isCashier && singleBillWadiahInfo.adminFee > 0 && (
+                        <div className="flex justify-between text-sm text-muted-foreground">
+                          <span>Biaya Admin</span>
+                          <span>
+                            + {formatCurrency(singleBillWadiahInfo.adminFee)}
+                          </span>
+                        </div>
+                      )}
+                    </>
+                  )}
+                  <div className="flex justify-between font-bold text-lg border-t pt-2">
+                    <span>Total Bayar</span>
+                    <span className="text-primary">
+                      {singleBillWadiahInfo.remainingAmount > 0
+                        ? formatCurrency(singleBillWadiahInfo.finalTotal)
+                        : "Rp 0 (Lunas dengan Wadiah)"}
+                    </span>
+                  </div>
+                  {singleBillWadiahInfo.remainingAmount > 0 && (
+                    <p className="text-xs text-muted-foreground flex items-center gap-1">
+                      <ArrowRight className="h-3 w-3" />
+                      Sisa akan dibayar via{" "}
+                      {!isCashier ? "QRIS/Transfer" : "Tunai/Online"}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <DialogFooter className="gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowWadiahPaymentDialog(false);
+                  setSelectedBillForWadiah(null);
+                }}
+                disabled={isProcessingWadiah}
+              >
+                Batal
+              </Button>
+              <Button
+                onClick={handleWadiahPayment}
+                disabled={isProcessingWadiah}
+                className="bg-amber-600 hover:bg-amber-700"
+              >
+                {isProcessingWadiah ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Banknote className="h-4 w-4 mr-2" />
+                )}
+                {isProcessingWadiah
+                  ? "Memproses..."
+                  : singleBillWadiahInfo?.remainingAmount === 0
+                    ? "Bayar Penuh dengan Wadiah"
+                    : "Lanjutkan Pembayaran"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Bulk Wadiah Payment Dialog */}
+        <Dialog
+          open={showBulkWadiahDialog}
+          onOpenChange={setShowBulkWadiahDialog}
+        >
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <PiggyBank className="h-5 w-5 text-amber-600" />
+                Bayar {selectedBills.size} Tagihan dengan Wadiah
+              </DialogTitle>
+              <DialogDescription>
+                Gunakan saldo wadiah untuk membayar beberapa tagihan sekaligus
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              {/* Summary Info */}
+              <div className="p-3 rounded-lg bg-muted/50 space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Jumlah Tagihan</span>
+                  <span className="font-medium">
+                    {selectedBills.size} tagihan
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm font-medium border-t pt-2">
+                  <span>Total Tagihan</span>
+                  <span className="text-primary">
+                    {formatCurrency(bulkWadiahInfo.totalAmount)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Wadiah Balance */}
+              <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Wallet className="h-4 w-4 text-amber-600" />
+                    <span className="text-sm font-medium">
+                      Total Saldo Wadiah
+                    </span>
+                  </div>
+                  <span className="font-bold text-amber-600">
+                    {formatCurrency(bulkWadiahInfo.totalWadiahAvailable)}
+                  </span>
+                </div>
+                {bulkWadiahInfo.canPayFullWithWadiah && (
+                  <p className="text-xs text-amber-600 mt-2 flex items-center gap-1">
+                    <CheckCircle2 className="h-3 w-3" />
+                    Saldo mencukupi untuk bayar semua tagihan!
+                  </p>
+                )}
+              </div>
+
+              {/* Use Wadiah Toggle */}
+              <div className="flex items-start gap-3 p-3 rounded-lg border">
+                <Checkbox
+                  id="use-wadiah-bulk"
+                  checked={bulkUseWadiah}
+                  onCheckedChange={(checked) =>
+                    setBulkUseWadiah(checked as boolean)
+                  }
+                  className="mt-0.5"
+                />
+                <div className="flex-1">
+                  <Label htmlFor="use-wadiah-bulk" className="cursor-pointer">
+                    Gunakan Saldo Wadiah
+                  </Label>
+                  {bulkUseWadiah && (
+                    <div className="mt-2">
+                      <Label
+                        htmlFor="wadiah-amount-bulk"
+                        className="text-xs text-muted-foreground"
+                      >
+                        Jumlah yang digunakan
+                      </Label>
+                      <Input
+                        id="wadiah-amount-bulk"
+                        type="number"
+                        value={bulkWadiahAmount}
+                        onChange={(e) => {
+                          const val = Math.min(
+                            Math.max(0, Number(e.target.value)),
+                            Math.min(
+                              bulkWadiahInfo.totalWadiahAvailable,
+                              bulkWadiahInfo.totalAmount,
+                            ),
+                          );
+                          setBulkWadiahAmount(val);
+                        }}
+                        max={Math.min(
+                          bulkWadiahInfo.totalWadiahAvailable,
+                          bulkWadiahInfo.totalAmount,
+                        )}
+                        className="mt-1"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Maks:{" "}
+                        {formatCurrency(
+                          Math.min(
+                            bulkWadiahInfo.totalWadiahAvailable,
+                            bulkWadiahInfo.totalAmount,
+                          ),
+                        )}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Payment Summary */}
+              <div className="p-3 rounded-lg bg-muted/50 space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Total Tagihan</span>
+                  <span>{formatCurrency(bulkWadiahInfo.totalAmount)}</span>
+                </div>
+                {bulkWadiahInfo.wadiahToUse > 0 && (
+                  <div className="flex justify-between text-sm text-amber-600">
+                    <span>Wadiah Digunakan</span>
+                    <span>- {formatCurrency(bulkWadiahInfo.wadiahToUse)}</span>
+                  </div>
+                )}
+                {bulkWadiahInfo.remainingAmount > 0 && (
+                  <>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">
+                        Sisa Tagihan
+                      </span>
+                      <span>
+                        {formatCurrency(bulkWadiahInfo.remainingAmount)}
+                      </span>
+                    </div>
+                    {!isCashier && bulkWadiahInfo.adminFee > 0 && (
+                      <div className="flex justify-between text-sm text-muted-foreground">
+                        <span>Biaya Admin</span>
+                        <span>+ {formatCurrency(bulkWadiahInfo.adminFee)}</span>
+                      </div>
+                    )}
+                  </>
+                )}
+                <div className="flex justify-between font-bold text-lg border-t pt-2">
+                  <span>Total Bayar</span>
+                  <span className="text-primary">
+                    {bulkWadiahInfo.remainingAmount > 0
+                      ? formatCurrency(bulkWadiahInfo.finalTotal)
+                      : "Rp 0 (Lunas dengan Wadiah)"}
+                  </span>
+                </div>
+                {bulkWadiahInfo.remainingAmount > 0 && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <ArrowRight className="h-3 w-3" />
+                    Sisa akan dibayar via{" "}
+                    {!isCashier ? "QRIS/Transfer" : "Tunai/Online"}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <DialogFooter className="gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowBulkWadiahDialog(false)}
+                disabled={isProcessingWadiah}
+              >
+                Batal
+              </Button>
+              <Button
+                onClick={handleBulkWadiahPayment}
+                disabled={isProcessingWadiah}
+                className="bg-amber-600 hover:bg-amber-700"
+              >
+                {isProcessingWadiah ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Banknote className="h-4 w-4 mr-2" />
+                )}
+                {isProcessingWadiah
+                  ? "Memproses..."
+                  : bulkWadiahInfo.remainingAmount === 0
+                    ? "Bayar Semua dengan Wadiah"
+                    : "Lanjutkan Pembayaran"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   );
