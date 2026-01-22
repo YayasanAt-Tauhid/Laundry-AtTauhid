@@ -69,12 +69,14 @@ interface PotentialDuplicate {
 interface NikCheckResult {
   available: boolean;
   message: string;
+  can_claim?: boolean;
   existing_student?: {
     id: string;
     name: string;
     class: string;
     student_code: string;
     is_active: boolean;
+    parent_id: string | null;
   };
 }
 
@@ -104,6 +106,9 @@ export default function Students() {
   const [existingNikStudent, setExistingNikStudent] = useState<
     NikCheckResult["existing_student"] | null
   >(null);
+  const [canClaimStudent, setCanClaimStudent] = useState(false);
+  const [claimDialogOpen, setClaimDialogOpen] = useState(false);
+  const [claiming, setClaiming] = useState(false);
 
   // Duplicate detection states
   const [duplicateWarningOpen, setDuplicateWarningOpen] = useState(false);
@@ -136,6 +141,7 @@ export default function Students() {
         setNikAvailable(null);
         setNikError(null);
         setExistingNikStudent(null);
+        setCanClaimStudent(false);
         return;
       }
 
@@ -157,24 +163,39 @@ export default function Students() {
         setNikAvailable(result.available);
         setNikError(result.available ? null : result.message);
         setExistingNikStudent(result.existing_student || null);
+        setCanClaimStudent(result.can_claim || false);
       } catch (error) {
         console.error("Error checking NIK:", error);
         // Fallback to simple query if RPC not available yet
         const { data: existing } = await supabase
           .from("students")
-          .select("id, name, class")
+          .select("id, name, class, student_code, is_active, parent_id")
           .eq("nik", nik.trim())
           .neq("id", excludeId || "")
           .maybeSingle();
 
         if (existing) {
+          const canClaim = existing.parent_id === null;
           setNikAvailable(false);
+          setCanClaimStudent(canClaim);
+          setExistingNikStudent({
+            id: existing.id,
+            name: existing.name,
+            class: existing.class,
+            student_code: existing.student_code,
+            is_active: existing.is_active,
+            parent_id: existing.parent_id,
+          });
           setNikError(
-            `NIK sudah digunakan oleh ${existing.name} (${existing.class})`,
+            canClaim
+              ? `NIK sudah terdaftar untuk ${existing.name} (${existing.class}). Anda dapat mengklaim siswa ini.`
+              : `NIK sudah digunakan oleh ${existing.name} (${existing.class})`,
           );
         } else {
           setNikAvailable(true);
           setNikError(null);
+          setCanClaimStudent(false);
+          setExistingNikStudent(null);
         }
       } finally {
         setNikChecking(false);
@@ -444,8 +465,75 @@ export default function Students() {
     setNikAvailable(null);
     setNikError(null);
     setExistingNikStudent(null);
+    setCanClaimStudent(false);
     setPendingSubmit(false);
     setDialogOpen(true);
+  };
+
+  // Handle claim existing student
+  const handleClaimStudent = async () => {
+    if (!user || !existingNikStudent) return;
+
+    setClaiming(true);
+    try {
+      // Try using RPC function first
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase.rpc as any)("claim_student", {
+        p_student_id: existingNikStudent.id,
+        p_parent_id: user.id,
+      });
+
+      if (error) {
+        // Fallback to direct update if RPC not available
+        const { error: updateError } = await supabase
+          .from("students")
+          .update({ parent_id: user.id })
+          .eq("id", existingNikStudent.id)
+          .is("parent_id", null);
+
+        if (updateError) throw updateError;
+
+        toast({
+          title: "Berhasil",
+          description: `Siswa ${existingNikStudent.name} berhasil diklaim dan ditambahkan ke daftar anak Anda.`,
+        });
+      } else {
+        const result = data as { success: boolean; message: string };
+        if (result.success) {
+          toast({
+            title: "Berhasil",
+            description: `Siswa ${existingNikStudent.name} berhasil diklaim dan ditambahkan ke daftar anak Anda.`,
+          });
+        } else {
+          toast({
+            variant: "destructive",
+            title: "Gagal",
+            description: result.message,
+          });
+          return;
+        }
+      }
+
+      setClaimDialogOpen(false);
+      setDialogOpen(false);
+      setFormData({ name: "", class: "", nik: "" });
+      setNikAvailable(null);
+      setNikError(null);
+      setExistingNikStudent(null);
+      setCanClaimStudent(false);
+      fetchStudents();
+    } catch (error: unknown) {
+      console.error("Error claiming student:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : "Gagal mengklaim siswa";
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: errorMessage,
+      });
+    } finally {
+      setClaiming(false);
+    }
   };
 
   return (
@@ -519,11 +607,13 @@ export default function Students() {
                           placeholder="Masukkan NIK siswa"
                           required
                           className={
-                            nikAvailable === false
-                              ? "border-destructive pr-10"
-                              : nikAvailable === true
-                                ? "border-green-500 pr-10"
-                                : ""
+                            nikAvailable === false && canClaimStudent
+                              ? "border-amber-500 pr-10"
+                              : nikAvailable === false
+                                ? "border-destructive pr-10"
+                                : nikAvailable === true
+                                  ? "border-green-500 pr-10"
+                                  : ""
                           }
                         />
                         <div className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -533,12 +623,19 @@ export default function Students() {
                           {!nikChecking && nikAvailable === true && (
                             <CheckCircle2 className="h-4 w-4 text-green-500" />
                           )}
-                          {!nikChecking && nikAvailable === false && (
-                            <XCircle className="h-4 w-4 text-destructive" />
-                          )}
+                          {!nikChecking &&
+                            nikAvailable === false &&
+                            !canClaimStudent && (
+                              <XCircle className="h-4 w-4 text-destructive" />
+                            )}
+                          {!nikChecking &&
+                            nikAvailable === false &&
+                            canClaimStudent && (
+                              <AlertTriangle className="h-4 w-4 text-amber-500" />
+                            )}
                         </div>
                       </div>
-                      {nikError && (
+                      {nikError && !canClaimStudent && (
                         <p className="text-sm text-destructive flex items-center gap-1">
                           <AlertTriangle className="h-3 w-3" />
                           {nikError}
@@ -550,6 +647,53 @@ export default function Students() {
                           NIK tersedia
                         </p>
                       )}
+                      {/* Claim Student Card */}
+                      {canClaimStudent &&
+                        existingNikStudent &&
+                        userRole === "parent" && (
+                          <div className="mt-3 p-4 border border-amber-300 rounded-lg bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700">
+                            <div className="flex items-start gap-3">
+                              <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900 flex items-center justify-center flex-shrink-0">
+                                <GraduationCap className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                                  Siswa Ditemukan!
+                                </p>
+                                <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
+                                  <span className="font-semibold">
+                                    {existingNikStudent.name}
+                                  </span>
+                                  <span className="mx-1">•</span>
+                                  <span>Kelas {existingNikStudent.class}</span>
+                                </p>
+                                {existingNikStudent.student_code && (
+                                  <Badge
+                                    variant="outline"
+                                    className="mt-1 text-xs font-mono bg-white dark:bg-amber-900"
+                                  >
+                                    {existingNikStudent.student_code}
+                                  </Badge>
+                                )}
+                                <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+                                  Siswa ini sudah terdaftar oleh admin tetapi
+                                  belum terhubung dengan akun orang tua.
+                                </p>
+                              </div>
+                            </div>
+                            <div className="mt-3 flex gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="bg-amber-600 hover:bg-amber-700 text-white"
+                                onClick={() => setClaimDialogOpen(true)}
+                              >
+                                <CheckCircle2 className="h-4 w-4 mr-1" />
+                                Klaim Sebagai Anak Saya
+                              </Button>
+                            </div>
+                          </div>
+                        )}
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="name">
@@ -590,8 +734,11 @@ export default function Students() {
                       <Button
                         type="submit"
                         disabled={
-                          saving || nikChecking || nikAvailable === false
+                          saving ||
+                          nikChecking ||
+                          (nikAvailable === false && !canClaimStudent)
                         }
+                        className={canClaimStudent ? "hidden" : ""}
                       >
                         {saving && (
                           <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -779,6 +926,57 @@ export default function Students() {
             fetchStudents();
           }}
         />
+
+        {/* Claim Student Confirmation Dialog */}
+        <AlertDialog open={claimDialogOpen} onOpenChange={setClaimDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2">
+                <GraduationCap className="h-5 w-5 text-primary" />
+                Konfirmasi Klaim Siswa
+              </AlertDialogTitle>
+              <AlertDialogDescription asChild>
+                <div className="space-y-3">
+                  <p>Anda akan mengklaim siswa berikut sebagai anak Anda:</p>
+                  {existingNikStudent && (
+                    <div className="p-3 border rounded-lg bg-muted/50">
+                      <p className="font-semibold">{existingNikStudent.name}</p>
+                      <p className="text-sm text-muted-foreground">
+                        Kelas: {existingNikStudent.class}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        NIK: {formData.nik}
+                      </p>
+                      {existingNikStudent.student_code && (
+                        <Badge
+                          variant="outline"
+                          className="mt-1 text-xs font-mono"
+                        >
+                          {existingNikStudent.student_code}
+                        </Badge>
+                      )}
+                    </div>
+                  )}
+                  <p className="text-sm">
+                    Setelah diklaim, siswa ini akan muncul di daftar anak Anda
+                    dan Anda dapat melihat tagihan serta riwayat transaksinya.
+                  </p>
+                </div>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={claiming}>Batal</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleClaimStudent}
+                disabled={claiming}
+                className="bg-primary"
+              >
+                {claiming && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Ya, Klaim Siswa Ini
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {/* Duplicate Warning Dialog */}
         <AlertDialog
