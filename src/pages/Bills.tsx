@@ -96,8 +96,12 @@ export default function Bills() {
     getEstimatedAdminFee,
   } = useMidtrans();
 
-  // Wadiah hook (only for formatting, actual payment uses secure RPC function)
-  const { formatCurrency: formatWadiahCurrency } = useWadiah();
+  // Wadiah hook (for formatting and settings check)
+  const {
+    formatCurrency: formatWadiahCurrency,
+    isOnlinePaymentEnabled,
+    settings: wadiahSettings,
+  } = useWadiah({ autoFetch: true });
 
   const [unpaidBills, setUnpaidBills] = useState<Bill[]>([]);
   const [paidBills, setPaidBills] = useState<Bill[]>([]);
@@ -949,21 +953,29 @@ export default function Bills() {
                           Bayar dengan Wadiah
                         </Button>
                       )}
-                    <Button
-                      onClick={handleBulkPayment}
-                      disabled={
-                        selectedBills.size === 0 || isPayingAll || isProcessing
-                      }
-                    >
-                      {isPayingAll ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <CreditCard className="h-4 w-4 mr-2" />
-                      )}
-                      {isPayingAll
-                        ? "Memproses..."
-                        : `Bayar Online (${selectedBills.size})`}
-                    </Button>
+                    {isOnlinePaymentEnabled ? (
+                      <Button
+                        onClick={handleBulkPayment}
+                        disabled={
+                          selectedBills.size === 0 ||
+                          isPayingAll ||
+                          isProcessing
+                        }
+                      >
+                        {isPayingAll ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <CreditCard className="h-4 w-4 mr-2" />
+                        )}
+                        {isPayingAll
+                          ? "Memproses..."
+                          : `Bayar Online (${selectedBills.size})`}
+                      </Button>
+                    ) : (
+                      <p className="text-sm text-muted-foreground px-3 py-2 bg-muted rounded">
+                        Pembayaran online dinonaktifkan
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1121,23 +1133,29 @@ export default function Bills() {
                                     Pakai Wadiah
                                   </Button>
                                 )}
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handlePayment(bill)}
-                                  disabled={
-                                    payingBillId === bill.id || isProcessing
-                                  }
-                                >
-                                  {payingBillId === bill.id ? (
-                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                  ) : (
-                                    <CreditCard className="h-4 w-4 mr-2" />
-                                  )}
-                                  {payingBillId === bill.id
-                                    ? "Memproses..."
-                                    : "Bayar Online"}
-                                </Button>
+                                {isOnlinePaymentEnabled ? (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handlePayment(bill)}
+                                    disabled={
+                                      payingBillId === bill.id || isProcessing
+                                    }
+                                  >
+                                    {payingBillId === bill.id ? (
+                                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                    ) : (
+                                      <CreditCard className="h-4 w-4 mr-2" />
+                                    )}
+                                    {payingBillId === bill.id
+                                      ? "Memproses..."
+                                      : "Bayar Online"}
+                                  </Button>
+                                ) : (
+                                  <p className="text-xs text-muted-foreground text-center px-2 py-1 bg-muted rounded">
+                                    Bayar via Kasir
+                                  </p>
+                                )}
                                 {userRole === "cashier" && (
                                   <Button
                                     variant="secondary"

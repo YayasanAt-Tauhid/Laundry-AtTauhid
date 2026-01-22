@@ -117,11 +117,32 @@ export function useMidtrans() {
 
       console.log("Edge Function response:", { data, error });
 
+      // Check for online payment disabled error (comes in data when status is 403)
+      if (data?.error && data?.code === "ONLINE_PAYMENT_DISABLED") {
+        throw new Error(data.error);
+      }
+
       if (error) {
         console.error("=== Edge Function Error Details ===");
         console.error("Error object:", error);
         console.error("Error message:", error.message);
         console.error("Error context:", error.context);
+
+        // Check if error context contains ONLINE_PAYMENT_DISABLED
+        try {
+          const errorBody =
+            typeof error.context === "string"
+              ? JSON.parse(error.context)
+              : error.context;
+          if (errorBody?.code === "ONLINE_PAYMENT_DISABLED") {
+            throw new Error(
+              errorBody.error ||
+                "Pembayaran online untuk parent sedang dinonaktifkan. Silakan bayar melalui kasir.",
+            );
+          }
+        } catch (parseError) {
+          // Not a JSON context, continue with normal error handling
+        }
 
         // Provide more specific error message based on error type
         let errorMessage = "Gagal membuat token pembayaran. ";
@@ -346,8 +367,30 @@ export function useMidtrans() {
         },
       );
 
+      // Check for online payment disabled error
+      if (data?.error && data?.code === "ONLINE_PAYMENT_DISABLED") {
+        throw new Error(data.error);
+      }
+
       if (error) {
         console.error("Edge function error:", error);
+
+        // Check if error context contains ONLINE_PAYMENT_DISABLED
+        try {
+          const errorBody =
+            typeof error.context === "string"
+              ? JSON.parse(error.context)
+              : error.context;
+          if (errorBody?.code === "ONLINE_PAYMENT_DISABLED") {
+            throw new Error(
+              errorBody.error ||
+                "Pembayaran online untuk parent sedang dinonaktifkan. Silakan bayar melalui kasir.",
+            );
+          }
+        } catch (parseError) {
+          // Not a JSON context, continue with normal error handling
+        }
+
         throw new Error(
           "Gagal membuat token pembayaran bulk. Pastikan Edge Function sudah di-deploy.",
         );

@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -12,11 +12,27 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "react-router-dom";
+import { format } from "date-fns";
+import { id as idLocale } from "date-fns/locale";
 import {
   Plus,
   Search,
@@ -27,8 +43,16 @@ import {
   Eye,
   ChevronLeft,
   ChevronRight,
+  Filter,
+  X,
+  CalendarIcon,
+  RotateCcw,
 } from "lucide-react";
-import { LAUNDRY_CATEGORIES, type OrderStatus } from "@/lib/constants";
+import {
+  LAUNDRY_CATEGORIES,
+  ORDER_STATUS,
+  type OrderStatus,
+} from "@/lib/constants";
 
 interface Order {
   id: string;
@@ -54,7 +78,36 @@ interface Order {
   };
 }
 
+interface Filters {
+  status: string;
+  category: string;
+  classFilter: string;
+  dateFrom: Date | undefined;
+  dateTo: Date | undefined;
+}
+
 const PAGE_SIZE = 20;
+
+const PARTNER_STATUS_OPTIONS = [
+  { value: "all", label: "Semua Status" },
+  { value: "MENUNGGU_APPROVAL_MITRA", label: "Menunggu Approval" },
+  { value: "DISETUJUI_MITRA", label: "Disetujui" },
+  { value: "DITOLAK_MITRA", label: "Ditolak" },
+  { value: "MENUNGGU_PEMBAYARAN", label: "Menunggu Pembayaran" },
+  { value: "DIBAYAR", label: "Dibayar" },
+  { value: "SELESAI", label: "Selesai" },
+];
+
+const ALL_STATUS_OPTIONS = [
+  { value: "all", label: "Semua Status" },
+  { value: "DRAFT", label: "Draft" },
+  { value: "MENUNGGU_APPROVAL_MITRA", label: "Menunggu Approval Mitra" },
+  { value: "DITOLAK_MITRA", label: "Ditolak Mitra" },
+  { value: "DISETUJUI_MITRA", label: "Disetujui Mitra" },
+  { value: "MENUNGGU_PEMBAYARAN", label: "Menunggu Pembayaran" },
+  { value: "DIBAYAR", label: "Dibayar" },
+  { value: "SELESAI", label: "Selesai" },
+];
 
 export default function Orders() {
   const { user, userRole } = useAuth();
@@ -70,14 +123,64 @@ export default function Orders() {
   const [currentPage, setCurrentPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
 
+  // Filter states
+  const [filters, setFilters] = useState<Filters>({
+    status: "all",
+    category: "all",
+    classFilter: "all",
+    dateFrom: undefined,
+    dateTo: undefined,
+  });
+  const [showFilters, setShowFilters] = useState(false);
+  const [availableClasses, setAvailableClasses] = useState<string[]>([]);
+
+  // Check if any filter is active
+  const hasActiveFilters = useMemo(() => {
+    return (
+      filters.status !== "all" ||
+      filters.category !== "all" ||
+      filters.classFilter !== "all" ||
+      filters.dateFrom !== undefined ||
+      filters.dateTo !== undefined
+    );
+  }, [filters]);
+
+  // Count active filters
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (filters.status !== "all") count++;
+    if (filters.category !== "all") count++;
+    if (filters.classFilter !== "all") count++;
+    if (filters.dateFrom || filters.dateTo) count++;
+    return count;
+  }, [filters]);
+
   useEffect(() => {
     fetchOrders();
-  }, [user, userRole, currentPage]);
+  }, [user, userRole, currentPage, filters]);
 
-  // Reset to first page when search term changes
+  // Reset to first page when search term or filters change
   useEffect(() => {
     setCurrentPage(0);
-  }, [searchTerm]);
+  }, [searchTerm, filters]);
+
+  // Fetch available classes
+  useEffect(() => {
+    const fetchClasses = async () => {
+      const { data } = await supabase
+        .from("students")
+        .select("class")
+        .order("class");
+
+      if (data) {
+        const uniqueClasses = [...new Set(data.map((s) => s.class))].filter(
+          Boolean,
+        ) as string[];
+        setAvailableClasses(uniqueClasses);
+      }
+    };
+    fetchClasses();
+  }, []);
 
   const fetchOrders = async () => {
     try {
@@ -94,6 +197,30 @@ export default function Orders() {
         { count: "exact" },
       );
 
+      // Apply status filter
+      if (filters.status !== "all") {
+        query = query.eq("status", filters.status as OrderStatus);
+      }
+
+      // Apply category filter
+      if (filters.category !== "all") {
+        query = query.eq(
+          "category",
+          filters.category as keyof typeof LAUNDRY_CATEGORIES,
+        );
+      }
+
+      // Apply date range filter
+      if (filters.dateFrom) {
+        query = query.gte(
+          "laundry_date",
+          format(filters.dateFrom, "yyyy-MM-dd"),
+        );
+      }
+      if (filters.dateTo) {
+        query = query.lte("laundry_date", format(filters.dateTo, "yyyy-MM-dd"));
+      }
+
       // Apply search filter on server side if search term exists
       if (searchTerm.trim()) {
         // We'll filter on client side for complex joins, but limit server fetch
@@ -108,7 +235,16 @@ export default function Orders() {
       const { data, error, count } = await query;
 
       if (error) throw error;
-      setOrders(data || []);
+
+      // Apply class filter on client side (since it's a joined field)
+      let filteredData = data || [];
+      if (filters.classFilter !== "all") {
+        filteredData = filteredData.filter(
+          (order) => order.students?.class === filters.classFilter,
+        );
+      }
+
+      setOrders(filteredData);
       setTotalCount(count || 0);
     } catch (error) {
       console.error("Error fetching orders:", error);
@@ -142,12 +278,12 @@ export default function Orders() {
       });
 
       fetchOrders();
-    } catch (error: unknown) {
+    } catch (error) {
+      console.error("Error approving order:", error);
       toast({
         variant: "destructive",
         title: "Error",
-        description:
-          error instanceof Error ? error.message : "Gagal menyetujui order",
+        description: "Gagal menyetujui order",
       });
     } finally {
       setProcessing(false);
@@ -155,11 +291,11 @@ export default function Orders() {
   };
 
   const handleReject = async () => {
-    if (!selectedOrder || !rejectionReason.trim()) {
+    if (!rejectionReason.trim()) {
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Alasan penolakan wajib diisi",
+        description: "Mohon isi alasan penolakan",
       });
       return;
     }
@@ -172,12 +308,12 @@ export default function Orders() {
           status: "DITOLAK_MITRA",
           rejection_reason: rejectionReason,
         })
-        .eq("id", selectedOrder.id);
+        .eq("id", selectedOrder?.id);
 
       if (error) throw error;
 
       toast({
-        title: "Order Ditolak",
+        title: "Berhasil",
         description: "Order telah ditolak",
       });
 
@@ -185,12 +321,12 @@ export default function Orders() {
       setRejectionReason("");
       setSelectedOrder(null);
       fetchOrders();
-    } catch (error: unknown) {
+    } catch (error) {
+      console.error("Error rejecting order:", error);
       toast({
         variant: "destructive",
         title: "Error",
-        description:
-          error instanceof Error ? error.message : "Gagal menolak order",
+        description: "Gagal menolak order",
       });
     } finally {
       setProcessing(false);
@@ -207,6 +343,16 @@ export default function Orders() {
     setDetailDialogOpen(true);
   };
 
+  const resetFilters = () => {
+    setFilters({
+      status: "all",
+      category: "all",
+      classFilter: "all",
+      dateFrom: undefined,
+      dateTo: undefined,
+    });
+  };
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("id-ID", {
       style: "currency",
@@ -215,8 +361,8 @@ export default function Orders() {
     }).format(amount);
   };
 
-  const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString("id-ID", {
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString("id-ID", {
       day: "numeric",
       month: "short",
       year: "numeric",
@@ -242,6 +388,16 @@ export default function Orders() {
     );
   });
 
+  // Get status options based on role
+  const statusOptions =
+    userRole === "partner" ? PARTNER_STATUS_OPTIONS : ALL_STATUS_OPTIONS;
+
+  // Pending approval count for partner quick filter
+  const pendingApprovalCount = useMemo(() => {
+    if (userRole !== "partner") return 0;
+    return orders.filter((o) => o.status === "MENUNGGU_APPROVAL_MITRA").length;
+  }, [orders, userRole]);
+
   return (
     <DashboardLayout>
       <div className="space-y-6 animate-fade-in">
@@ -266,16 +422,405 @@ export default function Orders() {
           )}
         </div>
 
-        {/* Search */}
-        <div className="relative max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Cari NIK, nama siswa, kelas, atau mitra..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
-          />
+        {/* Quick Stats for Partner */}
+        {userRole === "partner" && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <Card
+              className={`cursor-pointer transition-all hover:shadow-md ${
+                filters.status === "MENUNGGU_APPROVAL_MITRA"
+                  ? "ring-2 ring-amber-500 bg-amber-50 dark:bg-amber-900/20"
+                  : ""
+              }`}
+              onClick={() =>
+                setFilters((f) => ({
+                  ...f,
+                  status:
+                    f.status === "MENUNGGU_APPROVAL_MITRA"
+                      ? "all"
+                      : "MENUNGGU_APPROVAL_MITRA",
+                }))
+              }
+            >
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-muted-foreground">
+                      Menunggu Approval
+                    </p>
+                    <p className="text-2xl font-bold text-amber-600">
+                      {
+                        orders.filter(
+                          (o) => o.status === "MENUNGGU_APPROVAL_MITRA",
+                        ).length
+                      }
+                    </p>
+                  </div>
+                  <div className="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+                    <ClipboardList className="h-5 w-5 text-amber-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card
+              className={`cursor-pointer transition-all hover:shadow-md ${
+                filters.status === "DISETUJUI_MITRA"
+                  ? "ring-2 ring-green-500 bg-green-50 dark:bg-green-900/20"
+                  : ""
+              }`}
+              onClick={() =>
+                setFilters((f) => ({
+                  ...f,
+                  status:
+                    f.status === "DISETUJUI_MITRA" ? "all" : "DISETUJUI_MITRA",
+                }))
+              }
+            >
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Disetujui</p>
+                    <p className="text-2xl font-bold text-green-600">
+                      {
+                        orders.filter((o) => o.status === "DISETUJUI_MITRA")
+                          .length
+                      }
+                    </p>
+                  </div>
+                  <div className="h-10 w-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                    <CheckCircle className="h-5 w-5 text-green-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card
+              className={`cursor-pointer transition-all hover:shadow-md ${
+                filters.status === "DITOLAK_MITRA"
+                  ? "ring-2 ring-red-500 bg-red-50 dark:bg-red-900/20"
+                  : ""
+              }`}
+              onClick={() =>
+                setFilters((f) => ({
+                  ...f,
+                  status:
+                    f.status === "DITOLAK_MITRA" ? "all" : "DITOLAK_MITRA",
+                }))
+              }
+            >
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Ditolak</p>
+                    <p className="text-2xl font-bold text-red-600">
+                      {
+                        orders.filter((o) => o.status === "DITOLAK_MITRA")
+                          .length
+                      }
+                    </p>
+                  </div>
+                  <div className="h-10 w-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+                    <XCircle className="h-5 w-5 text-red-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card
+              className={`cursor-pointer transition-all hover:shadow-md ${
+                filters.status === "all" && !hasActiveFilters
+                  ? "ring-2 ring-primary bg-primary/5"
+                  : ""
+              }`}
+              onClick={() => resetFilters()}
+            >
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Total Order</p>
+                    <p className="text-2xl font-bold text-primary">
+                      {totalCount}
+                    </p>
+                  </div>
+                  <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                    <ClipboardList className="h-5 w-5 text-primary" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Search and Filter Bar */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          {/* Search */}
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Cari NIK, nama siswa, kelas, atau mitra..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+
+          {/* Filter Toggle Button */}
+          <Button
+            variant={showFilters ? "default" : "outline"}
+            onClick={() => setShowFilters(!showFilters)}
+            className="gap-2"
+          >
+            <Filter className="h-4 w-4" />
+            Filter
+            {activeFilterCount > 0 && (
+              <Badge
+                variant="secondary"
+                className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs"
+              >
+                {activeFilterCount}
+              </Badge>
+            )}
+          </Button>
+
+          {/* Reset Filters */}
+          {hasActiveFilters && (
+            <Button variant="ghost" onClick={resetFilters} className="gap-2">
+              <RotateCcw className="h-4 w-4" />
+              Reset
+            </Button>
+          )}
         </div>
+
+        {/* Filter Panel */}
+        {showFilters && (
+          <Card className="p-4 bg-muted/30">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              {/* Status Filter */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Status</Label>
+                <Select
+                  value={filters.status}
+                  onValueChange={(value) =>
+                    setFilters((f) => ({ ...f, status: value }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Pilih status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {statusOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Category Filter */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Kategori</Label>
+                <Select
+                  value={filters.category}
+                  onValueChange={(value) =>
+                    setFilters((f) => ({ ...f, category: value }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Pilih kategori" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Semua Kategori</SelectItem>
+                    {Object.entries(LAUNDRY_CATEGORIES).map(([key, cat]) => (
+                      <SelectItem key={key} value={key}>
+                        {cat.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Class Filter */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Kelas</Label>
+                <Select
+                  value={filters.classFilter}
+                  onValueChange={(value) =>
+                    setFilters((f) => ({ ...f, classFilter: value }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Pilih kelas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Semua Kelas</SelectItem>
+                    {availableClasses.map((cls) => (
+                      <SelectItem key={cls} value={cls}>
+                        Kelas {cls}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Date From */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Dari Tanggal</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start text-left font-normal"
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {filters.dateFrom ? (
+                        format(filters.dateFrom, "dd/MM/yyyy")
+                      ) : (
+                        <span className="text-muted-foreground">Pilih...</span>
+                      )}
+                      {filters.dateFrom && (
+                        <X
+                          className="ml-auto h-4 w-4 hover:text-destructive"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setFilters((f) => ({ ...f, dateFrom: undefined }));
+                          }}
+                        />
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={filters.dateFrom}
+                      onSelect={(date) =>
+                        setFilters((f) => ({ ...f, dateFrom: date }))
+                      }
+                      initialFocus
+                      locale={idLocale}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Date To */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Sampai Tanggal</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start text-left font-normal"
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {filters.dateTo ? (
+                        format(filters.dateTo, "dd/MM/yyyy")
+                      ) : (
+                        <span className="text-muted-foreground">Pilih...</span>
+                      )}
+                      {filters.dateTo && (
+                        <X
+                          className="ml-auto h-4 w-4 hover:text-destructive"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setFilters((f) => ({ ...f, dateTo: undefined }));
+                          }}
+                        />
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={filters.dateTo}
+                      onSelect={(date) =>
+                        setFilters((f) => ({ ...f, dateTo: date }))
+                      }
+                      disabled={(date) =>
+                        filters.dateFrom ? date < filters.dateFrom : false
+                      }
+                      initialFocus
+                      locale={idLocale}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
+
+            {/* Active Filters Summary */}
+            {hasActiveFilters && (
+              <div className="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t">
+                <span className="text-sm text-muted-foreground">
+                  Filter aktif:
+                </span>
+                {filters.status !== "all" && (
+                  <Badge variant="secondary" className="gap-1">
+                    Status:{" "}
+                    {
+                      statusOptions.find((o) => o.value === filters.status)
+                        ?.label
+                    }
+                    <X
+                      className="h-3 w-3 cursor-pointer"
+                      onClick={() =>
+                        setFilters((f) => ({ ...f, status: "all" }))
+                      }
+                    />
+                  </Badge>
+                )}
+                {filters.category !== "all" && (
+                  <Badge variant="secondary" className="gap-1">
+                    Kategori:{" "}
+                    {
+                      LAUNDRY_CATEGORIES[
+                        filters.category as keyof typeof LAUNDRY_CATEGORIES
+                      ]?.label
+                    }
+                    <X
+                      className="h-3 w-3 cursor-pointer"
+                      onClick={() =>
+                        setFilters((f) => ({ ...f, category: "all" }))
+                      }
+                    />
+                  </Badge>
+                )}
+                {filters.classFilter !== "all" && (
+                  <Badge variant="secondary" className="gap-1">
+                    Kelas: {filters.classFilter}
+                    <X
+                      className="h-3 w-3 cursor-pointer"
+                      onClick={() =>
+                        setFilters((f) => ({ ...f, classFilter: "all" }))
+                      }
+                    />
+                  </Badge>
+                )}
+                {(filters.dateFrom || filters.dateTo) && (
+                  <Badge variant="secondary" className="gap-1">
+                    Tanggal:{" "}
+                    {filters.dateFrom
+                      ? format(filters.dateFrom, "dd/MM/yy")
+                      : "..."}{" "}
+                    -{" "}
+                    {filters.dateTo
+                      ? format(filters.dateTo, "dd/MM/yy")
+                      : "..."}
+                    <X
+                      className="h-3 w-3 cursor-pointer"
+                      onClick={() =>
+                        setFilters((f) => ({
+                          ...f,
+                          dateFrom: undefined,
+                          dateTo: undefined,
+                        }))
+                      }
+                    />
+                  </Badge>
+                )}
+              </div>
+            )}
+          </Card>
+        )}
 
         {/* Orders - Responsive Layout */}
         <Card className="dashboard-card">
@@ -291,10 +836,16 @@ export default function Orders() {
                   Belum ada order
                 </h3>
                 <p className="text-muted-foreground text-center mb-4">
-                  {searchTerm
-                    ? "Tidak ditemukan order yang sesuai"
+                  {searchTerm || hasActiveFilters
+                    ? "Tidak ditemukan order yang sesuai dengan filter"
                     : "Order laundry akan muncul di sini"}
                 </p>
+                {hasActiveFilters && (
+                  <Button variant="outline" onClick={resetFilters}>
+                    <RotateCcw className="h-4 w-4 mr-2" />
+                    Reset Filter
+                  </Button>
+                )}
               </div>
             ) : (
               <>

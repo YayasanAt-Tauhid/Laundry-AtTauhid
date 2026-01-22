@@ -26,6 +26,7 @@ import {
   ArrowDown,
   Calculator,
   Info,
+  CreditCard,
 } from "lucide-react";
 import { LAUNDRY_CATEGORIES } from "@/lib/constants";
 import {
@@ -120,6 +121,7 @@ export default function Settings() {
     policy_info_text:
       "Sesuai prinsip syariah, pembulatan ke bawah dianggap sebagai sedekah/diskon dari kami untuk Anda. Sisa kembalian dapat disimpan sebagai saldo (wadiah) untuk transaksi berikutnya. Semua transaksi didasarkan atas kerelaan kedua belah pihak (antaradin).",
     show_policy_at_start: true,
+    parent_online_payment_enabled: true,
   });
   const [roundingSettingsId, setRoundingSettingsId] = useState<string | null>(
     null,
@@ -173,6 +175,8 @@ export default function Settings() {
           minimum_usage_balance: data.minimum_usage_balance,
           policy_info_text: data.policy_info_text,
           show_policy_at_start: data.show_policy_at_start,
+          parent_online_payment_enabled:
+            data.parent_online_payment_enabled ?? true,
         });
       }
     } catch (error) {
@@ -240,6 +244,8 @@ export default function Settings() {
             minimum_usage_balance: roundingSettings.minimum_usage_balance,
             policy_info_text: roundingSettings.policy_info_text,
             show_policy_at_start: roundingSettings.show_policy_at_start,
+            parent_online_payment_enabled:
+              roundingSettings.parent_online_payment_enabled,
             updated_at: new Date().toISOString(),
             updated_by: user?.id,
           })
@@ -257,6 +263,8 @@ export default function Settings() {
             minimum_usage_balance: roundingSettings.minimum_usage_balance,
             policy_info_text: roundingSettings.policy_info_text,
             show_policy_at_start: roundingSettings.show_policy_at_start,
+            parent_online_payment_enabled:
+              roundingSettings.parent_online_payment_enabled,
             updated_by: user?.id,
           })
           .select()
@@ -484,6 +492,49 @@ export default function Settings() {
                         untuk pembayaran (0 = tanpa minimum)
                       </p>
                     </div>
+                  )}
+                </div>
+
+                <Separator />
+
+                {/* Parent Online Payment Settings */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <CreditCard className="h-5 w-5 text-blue-600" />
+                    <h4 className="font-medium">Pembayaran Online Parent</h4>
+                  </div>
+
+                  <div className="flex items-center justify-between p-4 rounded-lg bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
+                    <div>
+                      <Label
+                        htmlFor="parent-online-payment"
+                        className="font-medium"
+                      >
+                        Aktifkan Pembayaran Online untuk Parent
+                      </Label>
+                      <p className="text-sm text-muted-foreground">
+                        Jika dinonaktifkan, parent tidak bisa bayar online
+                        (QRIS/E-Wallet) dan harus bayar melalui kasir
+                      </p>
+                    </div>
+                    <Switch
+                      id="parent-online-payment"
+                      checked={roundingSettings.parent_online_payment_enabled}
+                      onCheckedChange={(checked) =>
+                        setRoundingSettings({
+                          ...roundingSettings,
+                          parent_online_payment_enabled: checked,
+                        })
+                      }
+                    />
+                  </div>
+
+                  {!roundingSettings.parent_online_payment_enabled && (
+                    <p className="text-sm text-amber-600 flex items-center gap-1">
+                      <Info className="h-4 w-4" />
+                      Parent hanya bisa melihat tagihan, pembayaran dilakukan
+                      melalui kasir
+                    </p>
                   )}
                 </div>
 

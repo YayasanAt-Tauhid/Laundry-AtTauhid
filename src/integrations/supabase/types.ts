@@ -457,6 +457,7 @@ export type Database = {
           minimum_usage_balance: number;
           policy_info_text: string;
           show_policy_at_start: boolean;
+          parent_online_payment_enabled: boolean;
           updated_at: string;
           updated_by: string | null;
         };
@@ -468,6 +469,7 @@ export type Database = {
           minimum_usage_balance?: number;
           policy_info_text?: string;
           show_policy_at_start?: boolean;
+          parent_online_payment_enabled?: boolean;
           updated_at?: string;
           updated_by?: string | null;
         };
@@ -479,6 +481,7 @@ export type Database = {
           minimum_usage_balance?: number;
           policy_info_text?: string;
           show_policy_at_start?: boolean;
+          parent_online_payment_enabled?: boolean;
           updated_at?: string;
           updated_by?: string | null;
         };

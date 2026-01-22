@@ -493,6 +493,10 @@ export function useWadiah(options: UseWadiahOptions = {}) {
     getTransactionTypeLabel,
     getRoundingPolicyLabel,
     formatCurrency,
+
+    // Online Payment Setting for Parent
+    isOnlinePaymentEnabled:
+      state.settings?.parent_online_payment_enabled ?? true,
   };
 }
 

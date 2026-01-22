@@ -31,6 +31,51 @@ serve(async (req) => {
   }
 
   try {
+    // Initialize Supabase client for user validation
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Get authorization header to identify user
+    const authHeader = req.headers.get("Authorization");
+    if (authHeader) {
+      const token = authHeader.replace("Bearer ", "");
+      const {
+        data: { user },
+      } = await supabase.auth.getUser(token);
+
+      if (user) {
+        // Check user's role
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", user.id)
+          .single();
+
+        // If user is parent, check if online payment is enabled
+        if (profile?.role === "parent") {
+          const { data: settings } = await supabase
+            .from("rounding_settings")
+            .select("parent_online_payment_enabled")
+            .single();
+
+          if (settings && settings.parent_online_payment_enabled === false) {
+            return new Response(
+              JSON.stringify({
+                error:
+                  "Pembayaran online untuk parent sedang dinonaktifkan. Silakan bayar melalui kasir.",
+                code: "ONLINE_PAYMENT_DISABLED",
+              }),
+              {
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+                status: 403,
+              },
+            );
+          }
+        }
+      }
+    }
+
     const MIDTRANS_SERVER_KEY = Deno.env.get("MIDTRANS_SERVER_KEY");
     const MIDTRANS_IS_PRODUCTION =
       Deno.env.get("MIDTRANS_IS_PRODUCTION") === "true";
@@ -138,9 +183,7 @@ serve(async (req) => {
     }
 
     // Update the order with midtrans info and admin fee
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    // (supabase client already initialized above)
 
     // Calculate admin fee per order for bulk payments
     const adminFeePerOrder = isBulk
