@@ -116,6 +116,113 @@ interface CashierOption {
   full_name: string;
 }
 
+// Interface untuk grouped payments
+interface PaymentGroup {
+  groupId: string;
+  studentId: string;
+  studentName: string;
+  studentClass: string;
+  studentNik: string;
+  paidAt: string;
+  paymentMethod: string;
+  items: PaymentRecord[];
+  totalBill: number;
+  paidAmount: number;
+  changeAmount: number;
+  wadiahUsed: number;
+  roundingApplied: number;
+  primaryItemId: string; // ID item yang menyimpan data pembayaran (untuk nomor kwitansi)
+}
+
+// Fungsi untuk mengelompokkan pembayaran berdasarkan batch
+// (siswa sama, kasir sama, waktu bayar dalam 5 detik)
+function groupPaymentsByBatch(payments: PaymentRecord[]): PaymentGroup[] {
+  if (payments.length === 0) return [];
+
+  // Sort by paid_at descending
+  const sorted = [...payments].sort(
+    (a, b) => new Date(b.paid_at).getTime() - new Date(a.paid_at).getTime(),
+  );
+
+  const groups: PaymentGroup[] = [];
+  let currentGroup: PaymentRecord[] = [];
+  let lastPayment: PaymentRecord | null = null;
+
+  for (const payment of sorted) {
+    if (!lastPayment) {
+      currentGroup = [payment];
+      lastPayment = payment;
+      continue;
+    }
+
+    const timeDiff = Math.abs(
+      new Date(lastPayment.paid_at).getTime() -
+        new Date(payment.paid_at).getTime(),
+    );
+    const sameStudent = lastPayment.students?.id === payment.students?.id;
+    const sameMethod = lastPayment.payment_method === payment.payment_method;
+
+    // Group jika siswa sama, metode sama, dan dalam 5 detik
+    if (sameStudent && sameMethod && timeDiff <= 5000) {
+      currentGroup.push(payment);
+    } else {
+      // Simpan group sebelumnya dan mulai group baru
+      if (currentGroup.length > 0) {
+        groups.push(createPaymentGroup(currentGroup));
+      }
+      currentGroup = [payment];
+    }
+    lastPayment = payment;
+  }
+
+  // Simpan group terakhir
+  if (currentGroup.length > 0) {
+    groups.push(createPaymentGroup(currentGroup));
+  }
+
+  return groups;
+}
+
+// Helper function untuk membuat PaymentGroup dari array PaymentRecord
+function createPaymentGroup(items: PaymentRecord[]): PaymentGroup {
+  const firstItem = items[0];
+  const totalBill = items.reduce((sum, item) => sum + item.total_price, 0);
+
+  // Payment details ada di salah satu item (biasanya yang terakhir diupdate)
+  // Ambil nilai terbesar karena item lain harusnya 0
+  const paidAmount = Math.max(...items.map((item) => item.paid_amount || 0));
+  const changeAmount = Math.max(
+    ...items.map((item) => item.change_amount || 0),
+  );
+  const wadiahUsed = Math.max(...items.map((item) => item.wadiah_used || 0));
+  const roundingApplied = Math.max(
+    ...items.map((item) => item.rounding_applied || 0),
+  );
+
+  // Cari item yang menyimpan data pembayaran (paid_amount > 0)
+  // Ini adalah item yang sama dengan yang digunakan di CashierPOS untuk nomor kwitansi
+  const primaryItem =
+    items.find((item) => (item.paid_amount || 0) > 0) ||
+    items[items.length - 1];
+
+  return {
+    groupId: `${firstItem.students?.id}-${firstItem.paid_at}`,
+    studentId: firstItem.students?.id || "",
+    studentName: firstItem.students?.name || "-",
+    studentClass: firstItem.students?.class || "-",
+    studentNik: firstItem.students?.nik || "-",
+    paidAt: firstItem.paid_at,
+    paymentMethod: firstItem.payment_method,
+    items,
+    totalBill,
+    paidAmount,
+    changeAmount,
+    wadiahUsed,
+    roundingApplied,
+    primaryItemId: primaryItem.id,
+  };
+}
+
 export default function CashierReports() {
   const { toast } = useToast();
   const { profile, user, userRole } = useAuth();
@@ -142,7 +249,7 @@ export default function CashierReports() {
   const [period, setPeriod] = useState("today");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterPaymentMethod, setFilterPaymentMethod] = useState<string>("all");
-  const [selectedPayment, setSelectedPayment] = useState<PaymentRecord | null>(
+  const [selectedPayment, setSelectedPayment] = useState<PaymentGroup | null>(
     null,
   );
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -520,20 +627,20 @@ export default function CashierReports() {
     });
   };
 
-  const handlePrintReceipt = (payment: PaymentRecord) => {
+  const handlePrintReceipt = (group: PaymentGroup) => {
     const printWindow = window.open("", "_blank");
     if (!printWindow) {
       toast({
         variant: "destructive",
         title: "Error",
         description:
-          "Tidak dapat membuka jendela cetak. Periksa pop-up blocker.",
+          "Tidak dapat membuka jendela cetak. Pastikan popup tidak diblokir.",
       });
       return;
     }
 
-    const receiptNumber = `RCP-${payment.id.slice(0, 8).toUpperCase()}`;
-    const paidDate = new Date(payment.paid_at);
+    const receiptNumber = `RCP-${group.primaryItemId.slice(-8).toUpperCase()}`;
+    const paidDate = new Date(group.paidAt);
 
     printWindow.document.write(`
       <!DOCTYPE html>
@@ -562,6 +669,9 @@ export default function CashierReports() {
           .total-section { border-top: 1px dashed #000; padding-top: 10px; margin-top: 10px; }
           .total-row { display: flex; justify-content: space-between; font-size: 12px; margin: 3px 0; }
           .total-row.grand { font-size: 14px; font-weight: bold; margin-top: 5px; }
+          .total-row.syariah { color: #b45309; }
+          .total-row.discount { color: #059669; }
+          .total-row.change { color: #16a34a; font-weight: bold; }
           .footer { text-align: center; margin-top: 15px; font-size: 10px; border-top: 1px dashed #000; padding-top: 10px; }
           @media print {
             body { padding: 0; }
@@ -583,7 +693,7 @@ export default function CashierReports() {
               <span>${receiptNumber}</span>
             </div>
             <div class="info-row">
-              <span>Tanggal Bayar:</span>
+              <span>Tanggal:</span>
               <span>${paidDate.toLocaleDateString("id-ID", { day: "2-digit", month: "2-digit", year: "numeric" })}</span>
             </div>
             <div class="info-row">
@@ -601,89 +711,95 @@ export default function CashierReports() {
           <div class="info">
             <div class="info-row">
               <span>Siswa:</span>
-              <span>${payment.students?.name || "-"}</span>
+              <span>${group.studentName}</span>
             </div>
             <div class="info-row">
               <span>Kelas:</span>
-              <span>${payment.students?.class || "-"}</span>
-            </div>
-            <div class="info-row">
-              <span>Tgl Laundry:</span>
-              <span>${formatLaundryDate(payment.laundry_date)}</span>
+              <span>${group.studentClass}</span>
             </div>
           </div>
 
           <div class="divider"></div>
 
           <div class="items">
+            ${group.items
+              .map(
+                (item) => `
             <div class="item">
-              <div class="item-name">${LAUNDRY_CATEGORIES[payment.category as keyof typeof LAUNDRY_CATEGORIES]?.label || payment.category}</div>
+              <div class="item-name">${LAUNDRY_CATEGORIES[item.category as keyof typeof LAUNDRY_CATEGORIES]?.label || item.category}</div>
               <div class="item-detail">
-                <span>${payment.category === "kiloan" ? `${payment.weight_kg} kg` : `${payment.item_count} pcs`}</span>
-                <span>${formatCurrency(payment.total_price)}</span>
+                <span>${item.category === "kiloan" ? `${item.weight_kg} kg` : `${item.item_count} pcs`}</span>
+                <span>${formatCurrency(item.total_price)}</span>
               </div>
-              <div style="font-size: 10px; color: #666;">Mitra: ${payment.laundry_partners?.name || "-"}</div>
+              <div style="font-size: 10px; color: #666;">Tgl: ${item.laundry_date ? formatLaundryDate(item.laundry_date) : "-"}</div>
             </div>
+            `,
+              )
+              .join("")}
           </div>
 
           <div class="total-section">
             <div class="total-row">
               <span>Subtotal:</span>
-              <span>${formatCurrency(payment.total_price)}</span>
+              <span>${formatCurrency(group.totalBill)}</span>
             </div>
             ${
-              payment.wadiah_used && payment.wadiah_used > 0
+              group.wadiahUsed > 0
                 ? `
-            <div class="total-row">
+            <div class="total-row syariah">
               <span>Wadiah Digunakan:</span>
-              <span>- ${formatCurrency(payment.wadiah_used)}</span>
+              <span>- ${formatCurrency(group.wadiahUsed)}</span>
             </div>
             `
                 : ""
             }
             ${
-              payment.rounding_applied && payment.rounding_applied > 0
+              group.roundingApplied > 0
                 ? `
-            <div class="total-row">
+            <div class="total-row discount">
               <span>Diskon Pembulatan (Sedekah):</span>
-              <span>- ${formatCurrency(payment.rounding_applied)}</span>
+              <span>- ${formatCurrency(group.roundingApplied)}</span>
             </div>
             `
                 : ""
             }
             <div class="total-row grand">
               <span>TOTAL:</span>
-              <span>${formatCurrency(payment.total_price - (payment.wadiah_used || 0) - (payment.rounding_applied || 0))}</span>
+              <span>${formatCurrency(group.totalBill - group.wadiahUsed - group.roundingApplied)}</span>
             </div>
-            ${
-              payment.paid_amount
-                ? `
             <div class="total-row">
               <span>Dibayar:</span>
-              <span>${formatCurrency(payment.paid_amount)}</span>
+              <span>${formatCurrency(group.paidAmount)}</span>
+            </div>
+            ${
+              group.changeAmount > 0
+                ? `
+            <div class="total-row change">
+              <span>Kembalian:</span>
+              <span>${formatCurrency(group.changeAmount)}</span>
             </div>
             `
                 : ""
             }
             ${
-              payment.change_amount && payment.change_amount > 0
+              group.changeAmount > 0
                 ? `
-            <div class="total-row">
-              <span>Kembalian:</span>
-              <span>${formatCurrency(payment.change_amount)}</span>
+            <div class="total-row syariah">
+              <span>Disimpan ke Wadiah:</span>
+              <span>+ ${formatCurrency(group.changeAmount)}</span>
             </div>
             `
                 : ""
             }
             <div class="total-row">
               <span>Metode:</span>
-              <span>${payment.payment_method === "cash" ? "TUNAI" : "TRANSFER"}</span>
+              <span>${group.paymentMethod === "cash" ? "TUNAI" : "TRANSFER"}</span>
             </div>
           </div>
 
           <div class="footer">
-            <p>Terima kasih atas kepercayaan Anda</p>
-            <p>Semoga berkah & bermanfaat</p>
+            <p>Terima kasih atas pembayaran Anda!</p>
+            <p>Transaksi Sesuai Syariah</p>
             <p style="margin-top: 8px;">--- LUNAS ---</p>
           </div>
         </div>
@@ -703,42 +819,60 @@ export default function CashierReports() {
 
   /* Client-side filter removed in favor of Server-side filter */
 
-  const handleViewDetail = (payment: PaymentRecord) => {
-    setSelectedPayment(payment);
+  const handleViewDetail = (group: PaymentGroup) => {
+    setSelectedPayment(group);
     setShowDetailModal(true);
   };
 
   const handleExportCSV = () => {
+    // Group payments untuk export yang benar
+    const groupedPayments = groupPaymentsByBatch(payments);
+
     const headers = [
       "Tanggal",
       "Jam",
       "Siswa",
       "Kelas",
-      "Kategori",
-      "Jumlah",
-      "Tagihan",
+      "Jumlah Item",
+      "Detail Item",
+      "Total Tagihan",
       "Wadiah Digunakan",
       "Dibayar",
       "Kembalian",
       "Diskon Pembulatan",
       "Metode",
     ];
-    // NOTE: Currently exports only visible page. Should be enhanced to fetch all.
-    const rows = payments.map((p) => [
-      formatDate(p.paid_at),
-      formatTime(p.paid_at),
-      p.students?.name || "-",
-      p.students?.class || "-",
-      LAUNDRY_CATEGORIES[p.category as keyof typeof LAUNDRY_CATEGORIES]
-        ?.label || p.category,
-      p.category === "kiloan" ? `${p.weight_kg} kg` : `${p.item_count} pcs`,
-      p.total_price,
-      p.wadiah_used || 0,
-      p.paid_amount || p.total_price - (p.wadiah_used || 0),
-      p.change_amount || 0,
-      p.rounding_applied || 0,
-      p.payment_method === "cash" ? "Tunai" : "Transfer",
-    ]);
+
+    const rows = groupedPayments.map((group) => {
+      const itemDetails = group.items
+        .map((item) => {
+          const cat =
+            LAUNDRY_CATEGORIES[item.category as keyof typeof LAUNDRY_CATEGORIES]
+              ?.label || item.category;
+          const qty =
+            item.category === "kiloan"
+              ? `${item.weight_kg}kg`
+              : `${item.item_count}pcs`;
+          const tglLaundry = formatDate(item.laundry_date);
+          return `${cat} ${qty} @${item.total_price} [${tglLaundry}]`;
+        })
+        .join("; ");
+
+      return [
+        formatDate(group.paidAt),
+        formatTime(group.paidAt),
+        `"${group.studentName}"`,
+        group.studentClass,
+        group.items.length,
+        `"${itemDetails}"`,
+        group.totalBill,
+        group.wadiahUsed,
+        group.paidAmount,
+        group.changeAmount,
+        group.roundingApplied,
+        group.paymentMethod === "cash" ? "Tunai" : "Transfer",
+      ];
+    });
 
     const csvContent = [
       headers.join(","),
@@ -952,25 +1086,39 @@ export default function CashierReports() {
               </tr>
             </thead>
             <tbody>
-              ${payments
+              ${groupPaymentsByBatch(payments)
                 .map(
-                  (p, idx) => `
-                <tr>
-                  <td>${idx + 1}</td>
-                  <td>${formatDate(p.paid_at)} ${formatTime(p.paid_at)}</td>
-                  <td>${p.students?.name || "-"}</td>
-                  <td>${p.students?.class || "-"}</td>
-                  <td>${LAUNDRY_CATEGORIES[p.category as keyof typeof LAUNDRY_CATEGORIES]?.label || p.category}</td>
-                  <td>${p.category === "kiloan" ? `${p.weight_kg} kg` : `${p.item_count} pcs`}</td>
-                  <td>${formatCurrency(p.total_price)}</td>
-                  <td style="color: ${p.wadiah_used && p.wadiah_used > 0 ? "#d97706" : "#9ca3af"};">${p.wadiah_used && p.wadiah_used > 0 ? "-" + formatCurrency(p.wadiah_used) : "-"}</td>
-                  <td style="color: #16a34a; font-weight: 600;">${formatCurrency(p.paid_amount || p.total_price - (p.wadiah_used || 0))}</td>
-                  <td style="color: ${p.change_amount && p.change_amount > 0 ? "#2563eb" : "#9ca3af"};">${p.change_amount && p.change_amount > 0 ? formatCurrency(p.change_amount) + " → Wadiah" : "-"}</td>
-                  <td style="color: ${p.rounding_applied && p.rounding_applied > 0 ? "#16a34a" : "#9ca3af"};">${p.rounding_applied && p.rounding_applied > 0 ? "-" + formatCurrency(p.rounding_applied) : "-"}</td>
-                  <td class="${p.payment_method === "cash" ? "method-cash" : "method-transfer"}">
-                    ${p.payment_method === "cash" ? "Tunai" : "Transfer"}
+                  (group, idx) => `
+                <tr style="background-color: #f8fafc;">
+                  <td rowspan="${group.items.length + 1}" style="vertical-align: top; font-weight: bold;">${idx + 1}</td>
+                  <td colspan="5" style="font-weight: 600; background-color: #f1f5f9;">
+                    ${formatDate(group.paidAt)} ${formatTime(group.paidAt)} - ${group.studentName} (${group.studentClass})
+                    <br><small style="color: #64748b;">${group.items.length} item</small>
+                  </td>
+                  <td style="font-weight: 600; background-color: #f1f5f9;">${formatCurrency(group.totalBill)}</td>
+                  <td style="color: ${group.wadiahUsed > 0 ? "#d97706" : "#9ca3af"}; background-color: #f1f5f9;">${group.wadiahUsed > 0 ? "-" + formatCurrency(group.wadiahUsed) : "-"}</td>
+                  <td style="color: #16a34a; font-weight: 600; background-color: #f1f5f9;">${formatCurrency(group.paidAmount)}</td>
+                  <td style="color: ${group.changeAmount > 0 ? "#2563eb" : "#9ca3af"}; background-color: #f1f5f9;">${group.changeAmount > 0 ? formatCurrency(group.changeAmount) + " → Wadiah" : "-"}</td>
+                  <td style="color: ${group.roundingApplied > 0 ? "#16a34a" : "#9ca3af"}; background-color: #f1f5f9;">${group.roundingApplied > 0 ? "-" + formatCurrency(group.roundingApplied) : "-"}</td>
+                  <td class="${group.paymentMethod === "cash" ? "method-cash" : "method-transfer"}" style="background-color: #f1f5f9;">
+                    ${group.paymentMethod === "cash" ? "Tunai" : "Transfer"}
                   </td>
                 </tr>
+                ${group.items
+                  .map(
+                    (item) => `
+                <tr style="font-size: 0.85em; color: #64748b;">
+                  <td colspan="4" style="padding-left: 20px;">
+                    └ ${LAUNDRY_CATEGORIES[item.category as keyof typeof LAUNDRY_CATEGORIES]?.label || item.category}
+                    (${item.category === "kiloan" ? `${item.weight_kg} kg` : `${item.item_count} pcs`})
+                    <span style="color: #94a3b8; margin-left: 8px;">[${formatDate(item.laundry_date)}]</span>
+                  </td>
+                  <td>${formatCurrency(item.total_price)}</td>
+                  <td colspan="5"></td>
+                </tr>
+                `,
+                  )
+                  .join("")}
               `,
                 )
                 .join("")}
@@ -1628,7 +1776,7 @@ export default function CashierReports() {
                     <div className="overflow-x-auto">
                       <table className="w-full">
                         <thead>
-                          <tr className="border-b">
+                          <tr className="border-b bg-muted/30">
                             <th className="text-left py-3 px-2 font-medium text-muted-foreground text-sm">
                               Waktu Bayar
                             </th>
@@ -1636,10 +1784,10 @@ export default function CashierReports() {
                               Siswa
                             </th>
                             <th className="text-left py-3 px-2 font-medium text-muted-foreground text-sm">
-                              Kategori
+                              Item
                             </th>
                             <th className="text-right py-3 px-2 font-medium text-muted-foreground text-sm">
-                              Tagihan
+                              Total Tagihan
                             </th>
                             <th className="text-right py-3 px-2 font-medium text-muted-foreground text-sm">
                               Wadiah
@@ -1662,9 +1810,9 @@ export default function CashierReports() {
                           </tr>
                         </thead>
                         <tbody>
-                          {payments.map((payment) => (
+                          {groupPaymentsByBatch(payments).map((group) => (
                             <tr
-                              key={payment.id}
+                              key={group.groupId}
                               className="border-b hover:bg-muted/50 transition-colors"
                             >
                               <td className="py-3 px-2">
@@ -1672,10 +1820,10 @@ export default function CashierReports() {
                                   <Clock className="h-3 w-3 text-muted-foreground" />
                                   <div>
                                     <p className="text-xs font-medium">
-                                      {formatDate(payment.paid_at)}
+                                      {formatDate(group.paidAt)}
                                     </p>
                                     <p className="text-xs text-muted-foreground">
-                                      {formatTime(payment.paid_at)}
+                                      {formatTime(group.paidAt)}
                                     </p>
                                   </div>
                                 </div>
@@ -1686,40 +1834,77 @@ export default function CashierReports() {
                                   <div>
                                     <div className="flex items-center gap-1">
                                       <span className="font-mono text-xs text-muted-foreground bg-muted px-1 py-0.5 rounded">
-                                        {payment.students?.nik || "-"}
+                                        {group.studentNik}
                                       </span>
                                       <p className="text-sm font-medium">
-                                        {payment.students?.name || "-"}
+                                        {group.studentName}
                                       </p>
                                     </div>
                                     <p className="text-xs text-muted-foreground">
-                                      {payment.students?.class || "-"}
+                                      {group.studentClass}
                                     </p>
                                   </div>
                                 </div>
                               </td>
                               <td className="py-3 px-2">
-                                <span className="px-2 py-1 bg-primary/10 text-primary rounded-md text-xs">
-                                  {LAUNDRY_CATEGORIES[
-                                    payment.category as keyof typeof LAUNDRY_CATEGORIES
-                                  ]?.label || payment.category}
-                                </span>
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  {payment.category === "kiloan"
-                                    ? `${payment.weight_kg} kg`
-                                    : `${payment.item_count} pcs`}
-                                </p>
+                                <div className="space-y-1">
+                                  {group.items.length === 1 ? (
+                                    <div>
+                                      <span className="px-2 py-1 bg-primary/10 text-primary rounded-md text-xs">
+                                        {LAUNDRY_CATEGORIES[
+                                          group.items[0]
+                                            .category as keyof typeof LAUNDRY_CATEGORIES
+                                        ]?.label || group.items[0].category}
+                                      </span>
+                                      <p className="text-xs text-muted-foreground mt-1">
+                                        {group.items[0].category === "kiloan"
+                                          ? `${group.items[0].weight_kg} kg`
+                                          : `${group.items[0].item_count} pcs`}
+                                      </p>
+                                      <p className="text-xs text-muted-foreground">
+                                        Tgl:{" "}
+                                        {formatLaundryDate(
+                                          group.items[0].laundry_date,
+                                        )}
+                                      </p>
+                                    </div>
+                                  ) : (
+                                    <div>
+                                      <span className="px-2 py-1 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 rounded-md text-xs font-medium">
+                                        {group.items.length} item
+                                      </span>
+                                      <div className="mt-1 text-xs text-muted-foreground max-h-24 overflow-y-auto">
+                                        {group.items.map((item, idx) => (
+                                          <p key={item.id} className="truncate">
+                                            {idx + 1}.{" "}
+                                            {LAUNDRY_CATEGORIES[
+                                              item.category as keyof typeof LAUNDRY_CATEGORIES
+                                            ]?.label || item.category}{" "}
+                                            (
+                                            {item.category === "kiloan"
+                                              ? `${item.weight_kg}kg`
+                                              : `${item.item_count}pcs`}
+                                            ) -{" "}
+                                            {formatCurrency(item.total_price)}{" "}
+                                            <span className="text-muted-foreground/70">
+                                              [{formatDate(item.laundry_date)}]
+                                            </span>
+                                          </p>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
                               </td>
                               <td className="py-3 px-2 text-right">
                                 <p className="font-semibold text-sm">
-                                  {formatCurrency(payment.total_price)}
+                                  {formatCurrency(group.totalBill)}
                                 </p>
                               </td>
                               <td className="py-3 px-2 text-right">
-                                {payment.wadiah_used &&
-                                payment.wadiah_used > 0 ? (
+                                {group.wadiahUsed > 0 ? (
                                   <p className="text-sm text-amber-600 font-medium">
-                                    -{formatCurrency(payment.wadiah_used)}
+                                    -{formatCurrency(group.wadiahUsed)}
                                   </p>
                                 ) : (
                                   <p className="text-xs text-muted-foreground">
@@ -1729,21 +1914,15 @@ export default function CashierReports() {
                               </td>
                               <td className="py-3 px-2 text-right">
                                 <p className="text-sm font-medium text-emerald-600">
-                                  {formatCurrency(
-                                    payment.paid_amount ||
-                                      payment.total_price -
-                                        (payment.wadiah_used || 0),
-                                  )}
+                                  {formatCurrency(group.paidAmount)}
                                 </p>
                               </td>
                               <td className="py-3 px-2 text-right">
-                                {payment.change_amount &&
-                                payment.change_amount > 0 ? (
+                                {group.changeAmount > 0 ? (
                                   <div>
                                     <p className="text-sm text-blue-600">
-                                      {formatCurrency(payment.change_amount)}
+                                      {formatCurrency(group.changeAmount)}
                                     </p>
-                                    {/* Indicator jika kembalian disimpan ke wadiah */}
                                     <p className="text-xs text-purple-500">
                                       → Wadiah
                                     </p>
@@ -1754,12 +1933,10 @@ export default function CashierReports() {
                                   </p>
                                 )}
                               </td>
-                              {/* Diskon Pembulatan */}
                               <td className="py-3 px-2 text-right">
-                                {payment.rounding_applied &&
-                                payment.rounding_applied > 0 ? (
+                                {group.roundingApplied > 0 ? (
                                   <p className="text-xs text-green-600">
-                                    -{formatCurrency(payment.rounding_applied)}
+                                    -{formatCurrency(group.roundingApplied)}
                                   </p>
                                 ) : (
                                   <p className="text-xs text-muted-foreground">
@@ -1770,12 +1947,12 @@ export default function CashierReports() {
                               <td className="py-3 px-2">
                                 <span
                                   className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
-                                    payment.payment_method === "cash"
+                                    group.paymentMethod === "cash"
                                       ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
                                       : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
                                   }`}
                                 >
-                                  {payment.payment_method === "cash" ? (
+                                  {group.paymentMethod === "cash" ? (
                                     <>
                                       <Banknote className="h-3 w-3" />
                                       Tunai
@@ -1793,14 +1970,14 @@ export default function CashierReports() {
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    onClick={() => handleViewDetail(payment)}
+                                    onClick={() => handleViewDetail(group)}
                                   >
                                     Detail
                                   </Button>
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    onClick={() => handlePrintReceipt(payment)}
+                                    onClick={() => handlePrintReceipt(group)}
                                     title="Cetak Kwitansi"
                                   >
                                     <Printer className="h-4 w-4" />
@@ -1878,21 +2055,13 @@ export default function CashierReports() {
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">
-                      Tanggal Laundry
-                    </span>
-                    <span className="font-medium">
-                      {formatLaundryDate(selectedPayment.laundry_date)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
                     <span className="text-muted-foreground">Tanggal Bayar</span>
-                    <span>{formatDateTime(selectedPayment.paid_at)}</span>
+                    <span>{formatDateTime(selectedPayment.paidAt)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Metode</span>
                     <span>
-                      {selectedPayment.payment_method === "cash"
+                      {selectedPayment.paymentMethod === "cash"
                         ? "Tunai"
                         : "Transfer"}
                     </span>
@@ -1905,41 +2074,59 @@ export default function CashierReports() {
                   <div className="bg-muted/30 rounded-lg p-3 space-y-1">
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Nama</span>
-                      <span>{selectedPayment.students?.name || "-"}</span>
+                      <span>{selectedPayment.studentName}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Kelas</span>
-                      <span>{selectedPayment.students?.class || "-"}</span>
+                      <span>{selectedPayment.studentClass}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">NIK</span>
+                      <span className="font-mono text-xs">
+                        {selectedPayment.studentNik}
+                      </span>
                     </div>
                   </div>
                 </div>
 
-                {/* Detail Laundry */}
+                {/* Detail Laundry Items */}
                 <div className="space-y-2">
-                  <h4 className="font-medium">Detail Laundry</h4>
-                  <div className="bg-muted/30 rounded-lg p-3 space-y-1">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Kategori</span>
-                      <span>
-                        {LAUNDRY_CATEGORIES[
-                          selectedPayment.category as keyof typeof LAUNDRY_CATEGORIES
-                        ]?.label || selectedPayment.category}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Jumlah</span>
-                      <span>
-                        {selectedPayment.category === "kiloan"
-                          ? `${selectedPayment.weight_kg} kg`
-                          : `${selectedPayment.item_count} pcs`}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Mitra</span>
-                      <span>
-                        {selectedPayment.laundry_partners?.name || "-"}
-                      </span>
-                    </div>
+                  <h4 className="font-medium">
+                    Detail Laundry ({selectedPayment.items.length} item)
+                  </h4>
+                  <div className="bg-muted/30 rounded-lg p-3 space-y-2 max-h-48 overflow-y-auto">
+                    {selectedPayment.items.map((item, idx) => (
+                      <div
+                        key={item.id}
+                        className="border-b border-muted last:border-0 pb-2 last:pb-0"
+                      >
+                        <div className="flex justify-between text-sm">
+                          <div>
+                            <span className="text-muted-foreground">
+                              {idx + 1}.{" "}
+                            </span>
+                            <span>
+                              {LAUNDRY_CATEGORIES[
+                                item.category as keyof typeof LAUNDRY_CATEGORIES
+                              ]?.label || item.category}
+                            </span>
+                            <span className="text-muted-foreground ml-1">
+                              (
+                              {item.category === "kiloan"
+                                ? `${item.weight_kg} kg`
+                                : `${item.item_count} pcs`}
+                              )
+                            </span>
+                          </div>
+                          <span className="font-medium">
+                            {formatCurrency(item.total_price)}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground ml-4">
+                          Tgl Laundry: {formatLaundryDate(item.laundry_date)}
+                        </p>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
@@ -1950,124 +2137,107 @@ export default function CashierReports() {
                     Rincian Pembayaran
                   </h4>
                   <div className="bg-gradient-to-br from-primary/5 to-emerald-500/5 border border-primary/20 rounded-lg p-3 space-y-2">
-                    {/* Tagihan */}
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">
-                        Total Tagihan
-                      </span>
-                      <span className="font-medium">
-                        {formatCurrency(selectedPayment.total_price)}
-                      </span>
-                    </div>
-
                     {/* Wadiah Digunakan */}
-                    {selectedPayment.wadiah_used &&
-                      selectedPayment.wadiah_used > 0 && (
+                    {/* Payment Details */}
+                    <div className="space-y-2 pt-2 border-t">
+                      {/* Subtotal */}
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">
+                          Subtotal ({selectedPayment.items.length} item)
+                        </span>
+                        <span className="font-medium">
+                          {formatCurrency(selectedPayment.totalBill)}
+                        </span>
+                      </div>
+
+                      {/* Wadiah Used */}
+                      {selectedPayment.wadiahUsed > 0 && (
                         <div className="flex justify-between text-sm">
                           <span className="text-muted-foreground flex items-center gap-1">
-                            <PiggyBank className="h-3 w-3" />
-                            Saldo Wadiah Digunakan
+                            <Wallet className="h-3 w-3" />
+                            Wadiah Digunakan
                           </span>
                           <span className="text-amber-600 font-medium">
-                            - {formatCurrency(selectedPayment.wadiah_used)}
+                            - {formatCurrency(selectedPayment.wadiahUsed)}
                           </span>
                         </div>
                       )}
 
-                    {/* Yang Harus Dibayar (jika ada wadiah) */}
-                    {selectedPayment.wadiah_used &&
-                      selectedPayment.wadiah_used > 0 && (
-                        <div className="flex justify-between text-sm border-t border-dashed pt-2">
+                      {/* Diskon Pembulatan */}
+                      {selectedPayment.roundingApplied > 0 && (
+                        <div className="flex justify-between text-sm">
                           <span className="text-muted-foreground">
-                            Sisa yang Dibayar
+                            Diskon Pembulatan (Sedekah)
                           </span>
-                          <span className="font-medium">
-                            {formatCurrency(
-                              selectedPayment.total_price -
-                                selectedPayment.wadiah_used,
-                            )}
+                          <span className="text-green-600 font-medium">
+                            - {formatCurrency(selectedPayment.roundingApplied)}
                           </span>
                         </div>
                       )}
 
-                    {/* Jumlah Dibayar */}
-                    <div className="flex justify-between text-sm border-t pt-2">
-                      <span className="text-muted-foreground">
-                        Jumlah Dibayar
-                      </span>
-                      <span className="font-bold text-emerald-600">
-                        {formatCurrency(
-                          selectedPayment.paid_amount ||
-                            selectedPayment.total_price -
-                              (selectedPayment.wadiah_used || 0),
-                        )}
-                      </span>
-                    </div>
+                      {/* Jumlah Dibayar */}
+                      <div className="flex justify-between text-sm border-t pt-2">
+                        <span className="text-muted-foreground">
+                          Jumlah Dibayar
+                        </span>
+                        <span className="font-bold text-emerald-600">
+                          {formatCurrency(selectedPayment.paidAmount)}
+                        </span>
+                      </div>
 
-                    {/* Kembalian */}
-                    {selectedPayment.change_amount &&
-                      selectedPayment.change_amount > 0 && (
+                      {/* Kembalian */}
+                      {selectedPayment.changeAmount > 0 && (
                         <div className="flex justify-between text-sm">
                           <span className="text-muted-foreground">
                             Kembalian
                           </span>
                           <span className="text-blue-600 font-medium">
-                            {formatCurrency(selectedPayment.change_amount)}
+                            {formatCurrency(selectedPayment.changeAmount)}
                           </span>
                         </div>
                       )}
 
-                    {/* Disimpan ke Wadiah */}
-                    {selectedPayment.change_amount &&
-                      selectedPayment.change_amount > 0 && (
+                      {/* Disimpan ke Wadiah */}
+                      {selectedPayment.changeAmount > 0 && (
                         <div className="flex justify-between text-sm bg-purple-500/10 rounded px-2 py-1 -mx-1">
                           <span className="text-purple-600 flex items-center gap-1">
                             <PiggyBank className="h-3 w-3" />
                             Disimpan ke Wadiah
                           </span>
                           <span className="text-purple-600 font-medium">
-                            {formatCurrency(selectedPayment.change_amount)}
+                            {formatCurrency(selectedPayment.changeAmount)}
                           </span>
                         </div>
                       )}
+                    </div>
 
-                    {/* Diskon Pembulatan */}
-                    {selectedPayment.rounding_applied &&
-                      selectedPayment.rounding_applied > 0 && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">
-                            Diskon Pembulatan (Sedekah)
-                          </span>
-                          <span className="text-green-600 font-medium">
-                            - {formatCurrency(selectedPayment.rounding_applied)}
-                          </span>
-                        </div>
+                    {/* Total Summary */}
+                    <div className="border-t pt-4">
+                      <div className="flex justify-between items-center">
+                        <span className="text-lg font-medium">
+                          Total Tagihan
+                        </span>
+                        <span className="text-2xl font-bold text-emerald-600">
+                          {formatCurrency(selectedPayment.totalBill)}
+                        </span>
+                      </div>
+                      {selectedPayment.wadiahUsed > 0 && (
+                        <p className="text-xs text-muted-foreground mt-1 text-right">
+                          (Dibayar: {formatCurrency(selectedPayment.paidAmount)}{" "}
+                          + Wadiah: {formatCurrency(selectedPayment.wadiahUsed)}
+                          )
+                        </p>
                       )}
+                    </div>
                   </div>
-                </div>
-
-                {/* Total Summary */}
-                <div className="border-t pt-4">
-                  <div className="flex justify-between items-center">
-                    <span className="text-lg font-medium">Total Tagihan</span>
-                    <span className="text-2xl font-bold text-emerald-600">
-                      {formatCurrency(selectedPayment.total_price)}
-                    </span>
-                  </div>
-                  {selectedPayment.wadiah_used &&
-                    selectedPayment.wadiah_used > 0 && (
-                      <p className="text-xs text-muted-foreground mt-1 text-right">
-                        (Dibayar:{" "}
-                        {formatCurrency(selectedPayment.paid_amount || 0)} +
-                        Wadiah: {formatCurrency(selectedPayment.wadiah_used)})
-                      </p>
-                    )}
                 </div>
 
                 <div className="pt-4">
                   <Button
                     className="w-full"
-                    onClick={() => handlePrintReceipt(selectedPayment)}
+                    onClick={() =>
+                      selectedPayment && handlePrintReceipt(selectedPayment)
+                    }
                   >
                     <Printer className="h-4 w-4 mr-2" />
                     Cetak Kwitansi

@@ -103,6 +103,7 @@ interface PaymentReceipt {
     category: string;
     quantity: string;
     price: number;
+    laundryDate: string;
   }[];
   subtotal: number;
   paymentMethod: string;
@@ -529,7 +530,7 @@ export default function CashierPOS() {
       if (allSuccess) {
         // Generate receipt with syariah details
         const receiptData: PaymentReceipt = {
-          receiptNumber: `RCP-${Date.now().toString().slice(-8)}`,
+          receiptNumber: `RCP-${selectedBillsList[selectedBillsList.length - 1]?.id.slice(-8).toUpperCase()}`,
           date: new Date().toLocaleDateString("id-ID"),
           time: new Date().toLocaleTimeString("id-ID"),
           cashierName: profile?.full_name || "Kasir",
@@ -545,6 +546,7 @@ export default function CashierPOS() {
                 ? `${bill.weight_kg} kg`
                 : `${bill.item_count} pcs`,
             price: bill.total_price,
+            laundryDate: bill.laundry_date,
           })),
           subtotal: paymentData.totalAmount,
           paymentMethod:
@@ -639,7 +641,7 @@ export default function CashierPOS() {
 
         // Generate receipt
         const receiptData: PaymentReceipt = {
-          receiptNumber: `RCP-${Date.now().toString().slice(-8)}`,
+          receiptNumber: `RCP-${selectedBillsList[selectedBillsList.length - 1]?.id.slice(-8).toUpperCase()}`,
           date: new Date().toLocaleDateString("id-ID"),
           time: new Date().toLocaleTimeString("id-ID"),
           cashierName: profile?.full_name || "Kasir",
@@ -655,6 +657,7 @@ export default function CashierPOS() {
                 ? `${bill.weight_kg} kg`
                 : `${bill.item_count} pcs`,
             price: bill.total_price,
+            laundryDate: bill.laundry_date,
           })),
           subtotal: selectedTotal,
           paymentMethod: paymentMethod === "cash" ? "Tunai" : "Transfer",
@@ -718,6 +721,7 @@ export default function CashierPOS() {
             <span>${item.quantity}</span>
             <span>${formatCurrency(item.price)}</span>
           </div>
+          <div style="font-size: 10px; color: #666;">Tgl: ${formatLaundryDate(item.laundryDate)}</div>
         </div>
       `,
       )
