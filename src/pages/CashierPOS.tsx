@@ -496,15 +496,19 @@ export default function CashierPOS() {
       const allSuccess = results.every((r) => r === true);
 
       // 4. Update order with syariah payment details
-      for (const bill of selectedBillsList) {
+      // Only store payment details on the last item to avoid duplication in reports
+      for (let i = 0; i < selectedBillsList.length; i++) {
+        const bill = selectedBillsList[i];
+        const isLastItem = i === selectedBillsList.length - 1;
+
         await supabase
           .from("laundry_orders")
           .update({
-            paid_amount: paymentData.paidAmount,
-            change_amount: paymentData.changeAmount,
-            wadiah_used: paymentData.wadiahUsed,
-            rounding_applied: paymentData.roundingApplied,
-            rounding_type: paymentData.roundingType,
+            paid_amount: isLastItem ? paymentData.paidAmount : 0,
+            change_amount: isLastItem ? paymentData.changeAmount : 0,
+            wadiah_used: isLastItem ? paymentData.wadiahUsed : 0,
+            rounding_applied: isLastItem ? paymentData.roundingApplied : 0,
+            rounding_type: isLastItem ? paymentData.roundingType : null,
           })
           .eq("id", bill.id);
       }

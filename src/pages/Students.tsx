@@ -146,43 +146,45 @@ export default function Students() {
       }
 
       setNikChecking(true);
+      console.log("[Claim Debug] Checking NIK:", nik.trim());
+
+      // Always use direct query for more reliable results
+      // This ensures claim feature works even if RPC function is not updated
       try {
-        // Use type assertion since RPC types may not be generated yet
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { data, error } = await (supabase.rpc as any)(
-          "check_nik_available",
-          {
-            p_nik: nik.trim(),
-            p_exclude_id: excludeId || null,
-          },
-        );
-
-        if (error) throw error;
-
-        const result = data as unknown as NikCheckResult;
-        setNikAvailable(result.available);
-        setNikError(result.available ? null : result.message);
-        setExistingNikStudent(result.existing_student || null);
-        setCanClaimStudent(result.can_claim || false);
-      } catch (error) {
-        console.error("Error checking NIK:", error);
-        // Fallback to simple query if RPC not available yet
-        const { data: existing } = await supabase
+        const { data: existing, error: queryError } = await supabase
           .from("students")
           .select("id, name, class, student_code, is_active, parent_id")
           .eq("nik", nik.trim())
-          .neq("id", excludeId || "")
+          .neq("id", excludeId || "00000000-0000-0000-0000-000000000000")
           .maybeSingle();
+
+        console.log(
+          "[Claim Debug] Query result:",
+          existing,
+          "Error:",
+          queryError,
+        );
+
+        if (queryError) {
+          console.error("[Claim Debug] Query error:", queryError);
+          throw queryError;
+        }
 
         if (existing) {
           const canClaim = existing.parent_id === null;
+          console.log("[Claim Debug] Student found:", {
+            name: existing.name,
+            parent_id: existing.parent_id,
+            canClaim: canClaim,
+          });
+
           setNikAvailable(false);
           setCanClaimStudent(canClaim);
           setExistingNikStudent({
             id: existing.id,
             name: existing.name,
             class: existing.class,
-            student_code: existing.student_code,
+            student_code: existing.student_code || "",
             is_active: existing.is_active,
             parent_id: existing.parent_id,
           });
@@ -192,11 +194,18 @@ export default function Students() {
               : `NIK sudah digunakan oleh ${existing.name} (${existing.class})`,
           );
         } else {
+          console.log("[Claim Debug] No existing student found, NIK available");
           setNikAvailable(true);
           setNikError(null);
           setCanClaimStudent(false);
           setExistingNikStudent(null);
         }
+      } catch (error) {
+        console.error("[Claim Debug] Error checking NIK:", error);
+        setNikAvailable(null);
+        setNikError("Gagal memeriksa NIK");
+        setCanClaimStudent(false);
+        setExistingNikStudent(null);
       } finally {
         setNikChecking(false);
       }
@@ -648,9 +657,18 @@ export default function Students() {
                         </p>
                       )}
                       {/* Claim Student Card */}
+                      {/* Debug info - remove in production */}
+                      {process.env.NODE_ENV === "development" &&
+                        existingNikStudent && (
+                          <p className="text-xs text-muted-foreground">
+                            Debug: canClaim={String(canClaimStudent)},
+                            parent_id={existingNikStudent.parent_id || "null"},
+                            role={userRole}
+                          </p>
+                        )}
                       {canClaimStudent &&
                         existingNikStudent &&
-                        userRole === "parent" && (
+                        (userRole === "parent" || userRole === "admin") && (
                           <div className="mt-3 p-4 border border-amber-300 rounded-lg bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700">
                             <div className="flex items-start gap-3">
                               <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900 flex items-center justify-center flex-shrink-0">
