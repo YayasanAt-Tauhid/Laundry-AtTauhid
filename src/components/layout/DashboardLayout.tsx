@@ -145,7 +145,11 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             <Menu className="h-5 w-5" />
           </button>
           <div className="flex items-center gap-2">
-            <span className="text-xl">🧺</span>
+            <img
+              src="/logo.png"
+              alt="Logo"
+              className="w-6 h-6 object-contain"
+            />
             <span className="font-semibold">At-Tauhid Laundry</span>
           </div>
           <div className="w-9" />
@@ -172,7 +176,11 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           <div className="flex items-center justify-between p-6 border-b border-sidebar-border">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-sidebar-primary/20 flex items-center justify-center">
-                <span className="text-xl">🧺</span>
+                <img
+                  src="/logo.png"
+                  alt="Logo"
+                  className="w-7 h-7 object-contain"
+                />
               </div>
               <div>
                 <h1 className="font-bold text-sidebar-foreground">

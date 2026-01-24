@@ -767,7 +767,10 @@ export default function CashierPOS() {
       <body>
         <div class="receipt">
           <div class="header">
-            <h1>LAUNDRY AT-TAUHID</h1>
+            <div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 5px;">
+              <img src="/logo.png" alt="Logo" style="width: 24px; height: 24px; object-fit: contain;" />
+              <h1>LAUNDRY AT-TAUHID</h1>
+            </div>
             <p>Pondok Pesantren At-Tauhid</p>
             <p>Kwitansi Pembayaran</p>
           </div>
@@ -1419,7 +1422,14 @@ export default function CashierPOS() {
             {receipt && (
               <div ref={receiptRef} className="font-mono text-sm space-y-3">
                 <div className="header text-center pb-3 border-b border-dashed">
-                  <h1 className="text-lg font-bold">🧺 At-Tauhid Laundry</h1>
+                  <div className="flex items-center justify-center gap-2">
+                    <img
+                      src="/logo.png"
+                      alt="Logo"
+                      className="w-6 h-6 object-contain"
+                    />
+                    <h1 className="text-lg font-bold">At-Tauhid Laundry</h1>
+                  </div>
                   <p className="text-xs text-muted-foreground">
                     Sistem Laundry Sekolah
                   </p>

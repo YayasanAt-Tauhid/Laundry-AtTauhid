@@ -191,7 +191,7 @@ export default function Orders() {
         `
           *,
           laundry_date,
-          students (name, class, nik),
+          students!inner (name, class, nik),
           laundry_partners (name)
         `,
         { count: "exact" },

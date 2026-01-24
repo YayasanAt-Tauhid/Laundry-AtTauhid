@@ -1090,6 +1090,10 @@ export function ImportData({
               ""
             ).trim();
 
+            // SECURITY: These price values are calculated from frontend constants,
+            // but the backend trigger `trg_validate_order_price` will ALWAYS
+            // recalculate and override them with correct values from the database.
+            // This ensures price manipulation is not possible.
             const orderData = {
               student_id: student.id,
               partner_id: partner.id,
@@ -1097,10 +1101,10 @@ export function ImportData({
               category: category,
               weight_kg: weightKg,
               item_count: itemCount,
-              price_per_unit: categoryInfo.price,
-              total_price: totalPrice,
-              yayasan_share: yayasanShare,
-              vendor_share: vendorShare,
+              price_per_unit: categoryInfo.price, // Will be overridden by backend
+              total_price: totalPrice, // Will be overridden by backend
+              yayasan_share: yayasanShare, // Will be overridden by backend
+              vendor_share: vendorShare, // Will be overridden by backend
               admin_fee: 0,
               status: status,
               laundry_date: laundryDate,

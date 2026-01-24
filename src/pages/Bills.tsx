@@ -136,6 +136,8 @@ export default function Bills() {
     try {
       setLoading(true);
       // Fetch unpaid bills (no pagination for unpaid)
+      // Use !inner join on students to ensure RLS policies are enforced
+      // This ensures parents only see orders for their own children
       const { data: unpaidData, error: unpaidError } = await supabase
         .from("laundry_orders")
         .select(
@@ -156,7 +158,7 @@ export default function Bills() {
           wadiah_used,
           rounding_applied,
           notes,
-          students (id, name, class, nik),
+          students!inner (id, name, class, nik),
           laundry_partners (name)
         `,
         )
@@ -171,6 +173,8 @@ export default function Bills() {
       const from = paidPage * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
 
+      // Use !inner join on students to ensure RLS policies are enforced
+      // This ensures parents only see paid orders for their own children
       const {
         data: paidData,
         error: paidError,
@@ -195,7 +199,7 @@ export default function Bills() {
           wadiah_used,
           rounding_applied,
           notes,
-          students (id, name, class, nik),
+          students!inner (id, name, class, nik),
           laundry_partners (name)
         `,
           { count: "exact" },
@@ -1275,35 +1279,64 @@ export default function Bills() {
                               </td>
                               <td className="py-4 px-4">
                                 <div className="space-y-1">
-                                  {bill.wadiah_used && bill.wadiah_used > 0 && (
-                                    <p className="text-xs text-amber-600 flex items-center gap-1">
-                                      <PiggyBank className="h-3 w-3" />
-                                      Wadiah: -
-                                      {formatCurrency(bill.wadiah_used)}
-                                    </p>
-                                  )}
-                                  {bill.rounding_applied &&
-                                    bill.rounding_applied > 0 && (
-                                      <p className="text-xs text-green-600">
-                                        Diskon: -
-                                        {formatCurrency(bill.rounding_applied)}
-                                      </p>
-                                    )}
-                                  {bill.paid_amount !== null &&
-                                    bill.paid_amount > 0 && (
-                                      <p className="text-xs text-muted-foreground flex items-center gap-1">
-                                        <Wallet className="h-3 w-3" />
-                                        Dibayar:{" "}
-                                        {formatCurrency(bill.paid_amount)}
-                                      </p>
-                                    )}
-                                  {bill.change_amount &&
-                                    bill.change_amount > 0 && (
-                                      <p className="text-xs text-blue-600">
-                                        Kembalian:{" "}
-                                        {formatCurrency(bill.change_amount)}
-                                      </p>
-                                    )}
+                                  {/* Show total amount paid (calculated) */}
+                                  {(() => {
+                                    const totalWithAdmin =
+                                      bill.total_price + (bill.admin_fee || 0);
+                                    const wadiahUsed = bill.wadiah_used || 0;
+                                    const rounding = bill.rounding_applied || 0;
+                                    const actualPaid =
+                                      bill.paid_amount && bill.paid_amount > 0
+                                        ? bill.paid_amount
+                                        : totalWithAdmin -
+                                          wadiahUsed -
+                                          rounding;
+
+                                    return (
+                                      <>
+                                        {/* Total yang dibayar */}
+                                        {actualPaid > 0 ? (
+                                          <p className="font-medium text-sm">
+                                            {formatCurrency(actualPaid)}
+                                          </p>
+                                        ) : wadiahUsed > 0 ? (
+                                          /* Jika full wadiah, tampilkan label */
+                                          <p className="font-medium text-sm text-amber-600">
+                                            Full Wadiah
+                                          </p>
+                                        ) : (
+                                          /* Fallback: tampilkan total tagihan */
+                                          <p className="font-medium text-sm">
+                                            {formatCurrency(totalWithAdmin)}
+                                          </p>
+                                        )}
+
+                                        {/* Wadiah digunakan */}
+                                        {wadiahUsed > 0 && (
+                                          <p className="text-xs text-amber-600 flex items-center gap-1">
+                                            <PiggyBank className="h-3 w-3" />
+                                            Wadiah: -
+                                            {formatCurrency(wadiahUsed)}
+                                          </p>
+                                        )}
+
+                                        {/* Diskon/pembulatan */}
+                                        {rounding > 0 && (
+                                          <p className="text-xs text-green-600">
+                                            Diskon: -{formatCurrency(rounding)}
+                                          </p>
+                                        )}
+
+                                        {/* Kembalian */}
+                                        {bill.change_amount > 0 && (
+                                          <p className="text-xs text-blue-600">
+                                            Kembalian:{" "}
+                                            {formatCurrency(bill.change_amount)}
+                                          </p>
+                                        )}
+                                      </>
+                                    );
+                                  })()}
                                 </div>
                               </td>
                               <td className="py-4 px-4">

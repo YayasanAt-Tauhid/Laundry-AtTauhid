@@ -65,7 +65,7 @@ export default function Dashboard() {
           total_price,
           status,
           laundry_date,
-          students (
+          students!inner (
             name,
             class
           )

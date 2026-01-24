@@ -107,7 +107,11 @@ export function AuthForm() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8 animate-fade-in">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 mb-4">
-            <span className="text-3xl">🧺</span>
+            <img
+              src="/logo.png"
+              alt="At-Tauhid Laundry"
+              className="w-12 h-12 object-contain"
+            />
           </div>
           <h1 className="text-2xl font-bold text-foreground">
             At-Tauhid Laundry

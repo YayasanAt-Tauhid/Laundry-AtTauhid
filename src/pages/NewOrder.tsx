@@ -26,6 +26,15 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, ArrowLeft, Package, Calendar } from "lucide-react";
 import { LAUNDRY_CATEGORIES, type LaundryCategory } from "@/lib/constants";
 
+// Type for prices fetched from database
+interface LaundryPriceRecord {
+  category: LaundryCategory;
+  price_per_unit: number;
+}
+
+// Map of category to price (from database)
+type LaundryPricesMap = Record<LaundryCategory, number>;
+
 interface Student {
   id: string;
   name: string;
@@ -54,6 +63,10 @@ export default function NewOrder() {
   const [students, setStudents] = useState<Student[]>([]);
   const [partners, setPartners] = useState<Partner[]>([]);
   const [holidaySetting, setHolidaySetting] = useState<HolidaySetting | null>(
+    null,
+  );
+  // SECURITY: Prices from database (backend is the source of truth)
+  const [laundryPrices, setLaundryPrices] = useState<LaundryPricesMap | null>(
     null,
   );
   const [loading, setLoading] = useState(true);
@@ -116,6 +129,35 @@ export default function NewOrder() {
             holidayData.non_kiloan_vendor_percent ?? 80,
         });
       }
+
+      // SECURITY: Fetch prices from database (backend is source of truth)
+      const { data: pricesData, error: pricesError } = await supabase
+        .from("laundry_prices")
+        .select("category, price_per_unit");
+
+      if (pricesError) {
+        console.error("Error fetching prices:", pricesError);
+      } else if (pricesData && pricesData.length > 0) {
+        const pricesMap: LaundryPricesMap = {} as LaundryPricesMap;
+        for (const item of pricesData as LaundryPriceRecord[]) {
+          pricesMap[item.category] = item.price_per_unit;
+        }
+        setLaundryPrices(pricesMap);
+
+        // Log warning if DB prices differ from constants
+        for (const [cat, dbPrice] of Object.entries(pricesMap)) {
+          const constPrice = LAUNDRY_CATEGORIES[cat as LaundryCategory]?.price;
+          if (constPrice && constPrice !== dbPrice) {
+            console.warn(
+              `[NewOrder] Price mismatch for ${cat}: DB=${dbPrice}, Constant=${constPrice}. Using DB price.`,
+            );
+          }
+        }
+      } else {
+        console.warn(
+          "[NewOrder] No prices found in database, using constants as fallback",
+        );
+      }
     } catch (error) {
       console.error("Error fetching data:", error);
       toast({
@@ -137,7 +179,11 @@ export default function NewOrder() {
   const calculatePrices = () => {
     if (!formData.category) return { total: 0, yayasan: 0, vendor: 0 };
 
-    const pricePerUnit = LAUNDRY_CATEGORIES[formData.category].price;
+    // SECURITY: Use price from database if available, fallback to constants
+    // Note: Backend trigger will ALWAYS recalculate with correct DB price
+    const pricePerUnit =
+      laundryPrices?.[formData.category] ??
+      LAUNDRY_CATEGORIES[formData.category].price;
     const isKiloan = formData.category === "kiloan";
     const quantity = isKiloan
       ? parseFloat(formData.weightKg) || 0
@@ -207,6 +253,14 @@ export default function NewOrder() {
     setSaving(true);
 
     try {
+      // SECURITY: These price values are calculated from frontend,
+      // but the backend trigger `trg_validate_order_price` will ALWAYS
+      // recalculate and override them with correct values from the database.
+      // This ensures price manipulation is not possible.
+      const pricePerUnit =
+        laundryPrices?.[formData.category] ??
+        LAUNDRY_CATEGORIES[formData.category].price;
+
       const { error } = await supabase.from("laundry_orders").insert({
         student_id: formData.studentId,
         partner_id: formData.partnerId,
@@ -214,10 +268,10 @@ export default function NewOrder() {
         category: formData.category,
         weight_kg: isKiloan ? parseFloat(formData.weightKg) : null,
         item_count: !isKiloan ? parseInt(formData.itemCount) : null,
-        price_per_unit: LAUNDRY_CATEGORIES[formData.category].price,
-        total_price: prices.total,
-        yayasan_share: prices.yayasan,
-        vendor_share: prices.vendor,
+        price_per_unit: pricePerUnit, // Will be overridden by backend
+        total_price: prices.total, // Will be overridden by backend
+        yayasan_share: prices.yayasan, // Will be overridden by backend
+        vendor_share: prices.vendor, // Will be overridden by backend
         status: "MENUNGGU_APPROVAL_MITRA",
         notes: formData.notes || null,
         laundry_date: formData.laundryDate,
@@ -462,7 +516,8 @@ export default function NewOrder() {
                         </span>
                         <span className="font-medium">
                           {formatCurrency(
-                            LAUNDRY_CATEGORIES[formData.category].price,
+                            laundryPrices?.[formData.category] ??
+                              LAUNDRY_CATEGORIES[formData.category].price,
                           )}
                           /{LAUNDRY_CATEGORIES[formData.category].unit}
                         </span>

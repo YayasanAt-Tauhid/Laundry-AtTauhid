@@ -327,7 +327,10 @@ export function WadiahDepositDialog({
         </head>
         <body>
           <div class="header">
-            <h1>LAUNDRY AT-TAUHID</h1>
+            <div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 5px;">
+              <img src="/logo.png" alt="Logo" style="width: 24px; height: 24px; object-fit: contain;" />
+              <h1>LAUNDRY AT-TAUHID</h1>
+            </div>
             <p>Struk Setoran Wadiah</p>
             <p>${receipt.receiptNumber}</p>
           </div>
@@ -433,7 +436,14 @@ export function WadiahDepositDialog({
               className="bg-muted/50 rounded-lg p-4 space-y-3 font-mono text-sm"
             >
               <div className="text-center border-b border-dashed pb-3">
-                <h3 className="font-bold text-lg">LAUNDRY AT-TAUHID</h3>
+                <div className="flex items-center justify-center gap-2 mb-1">
+                  <img
+                    src="/logo.png"
+                    alt="Logo"
+                    className="w-6 h-6 object-contain"
+                  />
+                  <h3 className="font-bold text-lg">LAUNDRY AT-TAUHID</h3>
+                </div>
                 <p className="text-muted-foreground text-xs">
                   Struk Setoran Wadiah
                 </p>

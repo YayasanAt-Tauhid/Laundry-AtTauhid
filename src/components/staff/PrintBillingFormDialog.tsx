@@ -392,7 +392,10 @@ export function PrintBillingFormDialog({
       </head>
       <body>
         <div class="header">
-          <h1>FORM INPUT TAGIHAN LAUNDRY</h1>
+          <div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 5px;">
+            <img src="/logo.png" alt="Logo" style="width: 32px; height: 32px; object-fit: contain;" />
+            <h1>FORM INPUT TAGIHAN LAUNDRY</h1>
+          </div>
           <p>Laundry At-Tauhid - Pondok Pesantren At-Tauhid</p>
         </div>
 

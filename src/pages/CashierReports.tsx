@@ -682,7 +682,10 @@ export default function CashierReports() {
       <body>
         <div class="receipt">
           <div class="header">
-            <h1>LAUNDRY AT-TAUHID</h1>
+            <div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 5px;">
+              <img src="/logo.png" alt="Logo" style="width: 24px; height: 24px; object-fit: contain;" />
+              <h1>LAUNDRY AT-TAUHID</h1>
+            </div>
             <p>Pondok Pesantren At-Tauhid</p>
             <p>Kwitansi Pembayaran</p>
           </div>
@@ -989,7 +992,10 @@ export default function CashierReports() {
         </head>
         <body>
           <div class="header">
-            <h1>🧺 At-Tauhid Laundry</h1>
+            <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
+              <img src="/logo.png" alt="Logo" style="width: 32px; height: 32px; object-fit: contain;" />
+              <h1 style="margin: 0;">At-Tauhid Laundry</h1>
+            </div>
             <p>Laporan Pembayaran Kasir</p>
             <p><strong>Periode: ${periodLabel}</strong></p>
             <p>Dicetak: ${formatDateTime(new Date().toISOString())}</p>

@@ -2,6 +2,15 @@ import { useState, useCallback, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { LAUNDRY_CATEGORIES, type LaundryCategory } from "@/lib/constants";
 
+// Type for prices fetched from database
+interface LaundryPriceRecord {
+  category: LaundryCategory;
+  price_per_unit: number;
+}
+
+// Map of category to price (from database)
+type LaundryPricesMap = Record<LaundryCategory, number>;
+
 // Types
 export interface Student {
   id: string;
@@ -145,6 +154,7 @@ const validateRow = (row: BulkOrderRow): RowValidationError[] => {
 const calculateRowPrices = (
   row: BulkOrderRow,
   config: RevenueConfig | null,
+  pricesFromDb: LaundryPricesMap | null,
 ): {
   pricePerUnit: number;
   totalPrice: number;
@@ -155,7 +165,10 @@ const calculateRowPrices = (
     return { pricePerUnit: 0, totalPrice: 0, yayasanShare: 0, vendorShare: 0 };
   }
 
-  const pricePerUnit = LAUNDRY_CATEGORIES[row.category].price;
+  // SECURITY: Use price from database if available, fallback to constants
+  // Note: Backend trigger will ALWAYS recalculate with correct DB price
+  const pricePerUnit =
+    pricesFromDb?.[row.category] ?? LAUNDRY_CATEGORIES[row.category].price;
   const isKiloan = row.category === "kiloan";
   const quantity = isKiloan
     ? parseFloat(row.weightKg) || 0
@@ -189,6 +202,10 @@ export function useBulkOrder(staffId: string | undefined) {
   const [revenueConfig, setRevenueConfig] = useState<RevenueConfig | null>(
     null,
   );
+  // SECURITY: Prices from database (backend is the source of truth)
+  const [laundryPrices, setLaundryPrices] = useState<LaundryPricesMap | null>(
+    null,
+  );
 
   // Loading states
   const [isLoadingData, setIsLoadingData] = useState(true);
@@ -203,24 +220,27 @@ export function useBulkOrder(staffId: string | undefined) {
   const fetchInitialData = useCallback(async () => {
     setIsLoadingData(true);
     try {
-      const [studentsRes, partnersRes, configRes] = await Promise.all([
-        supabase
-          .from("students")
-          .select("id, nik, name, class")
-          .eq("is_active", true)
-          .order("name"),
-        supabase
-          .from("laundry_partners")
-          .select("id, name")
-          .eq("is_active", true)
-          .order("name"),
-        supabase
-          .from("holiday_settings")
-          .select(
-            "kiloan_yayasan_per_kg, kiloan_vendor_per_kg, non_kiloan_yayasan_percent, non_kiloan_vendor_percent",
-          )
-          .single(),
-      ]);
+      const [studentsRes, partnersRes, configRes, pricesRes] =
+        await Promise.all([
+          supabase
+            .from("students")
+            .select("id, nik, name, class")
+            .eq("is_active", true)
+            .order("name"),
+          supabase
+            .from("laundry_partners")
+            .select("id, name")
+            .eq("is_active", true)
+            .order("name"),
+          supabase
+            .from("holiday_settings")
+            .select(
+              "kiloan_yayasan_per_kg, kiloan_vendor_per_kg, non_kiloan_yayasan_percent, non_kiloan_vendor_percent",
+            )
+            .single(),
+          // SECURITY: Fetch prices from database (backend is source of truth)
+          supabase.from("laundry_prices").select("category, price_per_unit"),
+        ]);
 
       if (studentsRes.data) setStudents(studentsRes.data);
       if (partnersRes.data) setPartners(partnersRes.data);
@@ -231,6 +251,28 @@ export function useBulkOrder(staffId: string | undefined) {
           non_kiloan_yayasan_percent: configRes.data.non_kiloan_yayasan_percent,
           non_kiloan_vendor_percent: configRes.data.non_kiloan_vendor_percent,
         });
+      }
+      // Build prices map from database
+      if (pricesRes.data && pricesRes.data.length > 0) {
+        const pricesMap: LaundryPricesMap = {} as LaundryPricesMap;
+        for (const item of pricesRes.data as LaundryPriceRecord[]) {
+          pricesMap[item.category] = item.price_per_unit;
+        }
+        setLaundryPrices(pricesMap);
+
+        // Log warning if DB prices differ from constants
+        for (const [cat, dbPrice] of Object.entries(pricesMap)) {
+          const constPrice = LAUNDRY_CATEGORIES[cat as LaundryCategory]?.price;
+          if (constPrice && constPrice !== dbPrice) {
+            console.warn(
+              `[useBulkOrder] Price mismatch for ${cat}: DB=${dbPrice}, Constant=${constPrice}. Using DB price.`,
+            );
+          }
+        }
+      } else {
+        console.warn(
+          "[useBulkOrder] No prices found in database, using constants as fallback",
+        );
       }
     } catch (error) {
       console.error("Error fetching initial data:", error);
@@ -254,7 +296,11 @@ export function useBulkOrder(staffId: string | undefined) {
             "weightKg" in updates ||
             "itemCount" in updates
           ) {
-            const prices = calculateRowPrices(updatedRow, revenueConfig);
+            const prices = calculateRowPrices(
+              updatedRow,
+              revenueConfig,
+              laundryPrices,
+            );
             Object.assign(updatedRow, prices);
           }
 
@@ -267,7 +313,7 @@ export function useBulkOrder(staffId: string | undefined) {
         }),
       );
     },
-    [revenueConfig],
+    [revenueConfig, laundryPrices],
   );
 
   // Set student for a row
