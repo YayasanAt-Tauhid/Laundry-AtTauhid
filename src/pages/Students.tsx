@@ -349,11 +349,15 @@ export default function Students() {
         });
       } else {
         // Create new student
+        // Generate temp student_code (will be overwritten by DB trigger)
+        const tempStudentCode = `STU-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+        
         const { error } = await supabase.from("students").insert({
           parent_id: user.id,
           name: formData.name.trim(),
           class: formData.class.trim(),
           nik: formData.nik.trim(),
+          student_code: tempStudentCode,
         });
 
         if (error) {

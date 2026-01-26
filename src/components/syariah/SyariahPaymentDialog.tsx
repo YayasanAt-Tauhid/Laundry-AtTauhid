@@ -30,7 +30,9 @@ import {
   PiggyBank,
 } from 'lucide-react';
 import { useWadiah } from '@/hooks/useWadiah';
-import { RoundingPolicy } from '@/integrations/supabase/types';
+import { Enums } from '@/integrations/supabase/types';
+
+type RoundingPolicy = Enums<"rounding_policy">;
 
 interface Bill {
   id: string;

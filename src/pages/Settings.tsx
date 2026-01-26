@@ -44,10 +44,10 @@ import {
 } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import {
-  RoundingPolicy,
-  RoundingSettings,
-} from "@/integrations/supabase/types";
+import { Tables, Enums } from "@/integrations/supabase/types";
+
+type RoundingPolicy = Enums<"rounding_policy">;
+type RoundingSettings = Tables<"rounding_settings">;
 
 interface RevenueConfig {
   kiloan_yayasan_per_kg: number;

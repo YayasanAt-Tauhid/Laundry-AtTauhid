@@ -34,7 +34,9 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useWadiah } from '@/hooks/useWadiah';
-import { WadiahTransactionType } from '@/integrations/supabase/types';
+import { Enums } from '@/integrations/supabase/types';
+
+type WadiahTransactionType = Enums<"wadiah_transaction_type">;
 
 interface WadiahBalanceCardProps {
   studentId: string;

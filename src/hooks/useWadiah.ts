@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import {
-  RoundingPolicy,
-  WadiahTransactionType,
-  StudentWadiahBalance,
-  WadiahTransaction,
-  RoundingSettings,
-} from "@/integrations/supabase/types";
+import { Tables, Enums } from "@/integrations/supabase/types";
+
+// Type aliases using Supabase generated types
+type RoundingPolicy = Enums<"rounding_policy">;
+type WadiahTransactionType = Enums<"wadiah_transaction_type">;
+type StudentWadiahBalance = Tables<"student_wadiah_balance">;
+type WadiahTransaction = Tables<"wadiah_transactions">;
+type RoundingSettings = Tables<"rounding_settings">;
 
 interface UseWadiahOptions {
   studentId?: string;

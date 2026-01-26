@@ -32,7 +32,9 @@ import {
   CheckCircle2,
   Clock,
   AlertCircle,
+  CreditCard,
 } from "lucide-react";
+import { MidtransPaymentReport } from "@/components/reports/MidtransPaymentReport";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LAUNDRY_CATEGORIES } from "@/lib/constants";
 import {
@@ -1126,7 +1128,7 @@ export default function Reports() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-2 lg:w-[400px]">
+          <TabsList className="grid w-full grid-cols-3 lg:w-[600px]">
             <TabsTrigger value="summary" className="flex items-center gap-2">
               <TrendingUp className="h-4 w-4" />
               Ringkasan & Bagi Hasil
@@ -1134,6 +1136,10 @@ export default function Reports() {
             <TabsTrigger value="bills" className="flex items-center gap-2">
               <ClipboardList className="h-4 w-4" />
               Laporan Tagihan
+            </TabsTrigger>
+            <TabsTrigger value="midtrans" className="flex items-center gap-2">
+              <CreditCard className="h-4 w-4" />
+              Pembayaran Midtrans
             </TabsTrigger>
           </TabsList>
 
@@ -1989,6 +1995,11 @@ export default function Reports() {
                 </Card>
               </>
             )}
+          </TabsContent>
+
+          {/* Midtrans Payment Report Tab */}
+          <TabsContent value="midtrans" className="mt-6">
+            <MidtransPaymentReport />
           </TabsContent>
         </Tabs>
 

@@ -666,6 +666,14 @@ export function ImportData({
     }
   };
 
+  // Helper to generate student_code (will be overwritten by DB trigger, but needed for TS)
+  const generateStudentCode = () => {
+    const date = new Date();
+    const dateStr = date.toISOString().slice(2, 10).replace(/-/g, '');
+    const random = Math.random().toString(36).substring(2, 8).toUpperCase();
+    return `STU-${dateStr}-${random}`;
+  };
+
   const handleImport = async () => {
     if (!user || parsedData.length === 0) return;
 
@@ -689,6 +697,7 @@ export function ImportData({
           name: (row["nama"] || row["name"] || "").trim(),
           class: (row["kelas"] || row["class"] || "").trim(),
           nik: (row["nik"] || row["nis"] || row["nomor_induk"] || "").trim(),
+          student_code: generateStudentCode(), // Required by TS, overwritten by DB trigger
           is_active: true,
           _rowIndex: index + 1, // Track row for error reporting
         }));
@@ -851,6 +860,7 @@ export function ImportData({
                     name: studentData.name,
                     class: studentData.class,
                     nik: studentData.nik,
+                    student_code: generateStudentCode(), // Required by TS, overwritten by DB trigger
                     is_active: studentData.is_active,
                   })
                   .select("id")
