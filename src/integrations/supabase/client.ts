@@ -2,19 +2,8 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 
-                    import.meta.env.SUPABASE_URL ||
-                    (typeof process !== 'undefined' && process.env.SUPABASE_URL);
-
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || 
-                                import.meta.env.SUPABASE_PUBLISHABLE_KEY ||
-                                (typeof process !== 'undefined' && process.env.SUPABASE_PUBLISHABLE_KEY);
-
-if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
-  throw new Error(
-    'Supabase env missing. Pastikan VITE_SUPABASE_URL dan VITE_SUPABASE_PUBLISHABLE_KEY sudah diset di Cloudflare Pages.'
-  );
-}
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
