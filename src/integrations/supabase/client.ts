@@ -2,8 +2,13 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_URL = __SUPABASE_URL__;
-const SUPABASE_PUBLISHABLE_KEY = __SUPABASE_KEY__;
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 
+                    import.meta.env.SUPABASE_URL ||
+                    (typeof process !== 'undefined' && process.env.SUPABASE_URL);
+
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || 
+                                import.meta.env.SUPABASE_PUBLISHABLE_KEY ||
+                                (typeof process !== 'undefined' && process.env.SUPABASE_PUBLISHABLE_KEY);
 
 if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
   throw new Error(
