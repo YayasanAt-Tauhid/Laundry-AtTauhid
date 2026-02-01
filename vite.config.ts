@@ -24,4 +24,8 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  define: {
+    __SUPABASE_URL__: JSON.stringify(process.env.VITE_SUPABASE_URL),
+    __SUPABASE_KEY__: JSON.stringify(process.env.VITE_SUPABASE_PUBLISHABLE_KEY),
+  },
 }));
