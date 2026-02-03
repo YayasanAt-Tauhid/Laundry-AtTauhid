@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useMidtransConfig, getMidtransEnvironment } from "@/hooks/useMidtransConfig";
 import {
   calculateAdminFee,
   PAYMENT_METHODS,
@@ -43,6 +44,8 @@ interface PaymentParams {
   customerName?: string;
   adminFee?: number;
   isCashier?: boolean; // Flag for cashier - no admin fee
+  existingSnapToken?: string | null; // Existing snap token to reuse
+  tokenUpdatedAt?: string | null; // When the token was created/updated
 }
 
 interface BulkPaymentParams {
@@ -55,14 +58,16 @@ interface BulkPaymentParams {
   customerName?: string;
   adminFee?: number;
   isCashier?: boolean; // Flag for cashier - no admin fee
+  existingSnapToken?: string | null; // Existing snap token to reuse
+  tokenUpdatedAt?: string | null; // When the token was created/updated
 }
 
-// NOTE: Server Key should NEVER be in frontend code for production!
-// All Midtrans token creation should go through Edge Function
-const MIDTRANS_IS_SANDBOX = true; // Set to false for production
+// Midtrans Snap token expires after 24 hours
+const SNAP_TOKEN_EXPIRY_HOURS = 24;
 
 export function useMidtrans() {
   const { toast } = useToast();
+  const { isReady: isMidtransReady, isLoading: isMidtransLoading, error: midtransError } = useMidtransConfig();
   const [isProcessing, setIsProcessing] = useState(false);
 
   // Calculate estimated admin fee based on amount
@@ -82,6 +87,18 @@ export function useMidtrans() {
   // Get payment method label
   const getPaymentMethodLabel = (amount: number): string => {
     return amount < QRIS_MAX_AMOUNT ? "QRIS (0.7%)" : "VA (Rp 4.400)";
+  };
+
+  // Check if existing snap token is still valid (not expired)
+  const isTokenValid = (tokenUpdatedAt: string | null | undefined): boolean => {
+    if (!tokenUpdatedAt) return false;
+    
+    const tokenDate = new Date(tokenUpdatedAt);
+    const now = new Date();
+    const hoursDiff = (now.getTime() - tokenDate.getTime()) / (1000 * 60 * 60);
+    
+    // Token is valid if less than 24 hours old
+    return hoursDiff < SNAP_TOKEN_EXPIRY_HOURS;
   };
 
   // NOTE: createSnapTokenDirect has been removed for security.
@@ -209,8 +226,23 @@ export function useMidtrans() {
         return;
       }
 
-      // Try to get snap token via Edge Function (or fallback to direct API if server key is configured)
-      const snapToken = await createSnapToken({ ...params, adminFee });
+      let snapToken: string | null = null;
+
+      // Check if we can reuse existing token (not expired - within 24 hours)
+      if (
+        params.existingSnapToken &&
+        isTokenValid(params.tokenUpdatedAt)
+      ) {
+        console.log("=== Reusing existing snap token (not expired) ===");
+        snapToken = params.existingSnapToken;
+      } else {
+        // Create new token via Edge Function
+        console.log("=== Creating new snap token ===");
+        if (params.existingSnapToken) {
+          console.log("Previous token expired, creating new one");
+        }
+        snapToken = await createSnapToken({ ...params, adminFee });
+      }
 
       if (!snapToken) {
         throw new Error("Gagal membuat token pembayaran");
@@ -427,8 +459,23 @@ export function useMidtrans() {
         return;
       }
 
-      // Try to get snap token via Edge Function (or fallback to direct API if server key is configured)
-      const snapToken = await createBulkSnapToken({ ...params, adminFee });
+      let snapToken: string | null = null;
+
+      // Check if we can reuse existing token (not expired - within 24 hours)
+      if (
+        params.existingSnapToken &&
+        isTokenValid(params.tokenUpdatedAt)
+      ) {
+        console.log("=== Reusing existing bulk snap token (not expired) ===");
+        snapToken = params.existingSnapToken;
+      } else {
+        // Create new token via Edge Function
+        console.log("=== Creating new bulk snap token ===");
+        if (params.existingSnapToken) {
+          console.log("Previous token expired, creating new one");
+        }
+        snapToken = await createBulkSnapToken({ ...params, adminFee });
+      }
 
       if (!snapToken) {
         throw new Error("Gagal membuat token pembayaran");
@@ -516,5 +563,11 @@ export function useMidtrans() {
     isProcessing,
     getEstimatedAdminFee,
     calculateAdminFee: getActualAdminFee,
+    isTokenValid, // Expose for UI to show token status
+    // Midtrans config status
+    isMidtransReady,
+    isMidtransLoading,
+    midtransError,
+    getMidtransEnvironment,
   };
 }
