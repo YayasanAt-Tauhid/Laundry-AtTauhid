@@ -9,3 +9,4 @@ export { ReportFilters } from "./ReportFilters";
 export { Pagination } from "./Pagination";
 export { CashierMidtransReport } from "./CashierMidtransReport";
 export { CashierWadiahReport } from "./CashierWadiahReport";
+export { StudentArrearsReport } from "./StudentArrearsReport";

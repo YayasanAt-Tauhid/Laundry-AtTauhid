@@ -71,62 +71,6 @@ export type Database = {
         }
         Relationships: []
       }
-      categories: {
-        Row: {
-          created_at: string | null
-          id: string
-          name: string
-        }
-        Insert: {
-          created_at?: string | null
-          id?: string
-          name: string
-        }
-        Update: {
-          created_at?: string | null
-          id?: string
-          name?: string
-        }
-        Relationships: []
-      }
-      custom_options: {
-        Row: {
-          created_at: string | null
-          id: string
-          name: string
-          price_add: number | null
-          product_id: string
-          required: boolean | null
-          type: string
-        }
-        Insert: {
-          created_at?: string | null
-          id?: string
-          name: string
-          price_add?: number | null
-          product_id: string
-          required?: boolean | null
-          type: string
-        }
-        Update: {
-          created_at?: string | null
-          id?: string
-          name?: string
-          price_add?: number | null
-          product_id?: string
-          required?: boolean | null
-          type?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "custom_options_product_id_fkey"
-            columns: ["product_id"]
-            isOneToOne: false
-            referencedRelation: "products"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       holiday_settings: {
         Row: {
           id: string
@@ -334,71 +278,6 @@ export type Database = {
         }
         Relationships: []
       }
-      product_variations: {
-        Row: {
-          created_at: string | null
-          id: string
-          name: string
-          product_id: string
-        }
-        Insert: {
-          created_at?: string | null
-          id?: string
-          name: string
-          product_id: string
-        }
-        Update: {
-          created_at?: string | null
-          id?: string
-          name?: string
-          product_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "product_variations_product_id_fkey"
-            columns: ["product_id"]
-            isOneToOne: false
-            referencedRelation: "products"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      products: {
-        Row: {
-          base_price: number
-          category: string
-          created_at: string | null
-          description: string
-          id: string
-          image: string | null
-          is_available: boolean | null
-          name: string
-          updated_at: string | null
-        }
-        Insert: {
-          base_price?: number
-          category: string
-          created_at?: string | null
-          description: string
-          id?: string
-          image?: string | null
-          is_available?: boolean | null
-          name: string
-          updated_at?: string | null
-        }
-        Update: {
-          base_price?: number
-          category?: string
-          created_at?: string | null
-          description?: string
-          id?: string
-          image?: string | null
-          is_available?: boolean | null
-          name?: string
-          updated_at?: string | null
-        }
-        Relationships: []
-      }
       profiles: {
         Row: {
           created_at: string
@@ -568,38 +447,6 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
-      }
-      variation_options: {
-        Row: {
-          created_at: string | null
-          id: string
-          name: string
-          price_add: number | null
-          variation_id: string
-        }
-        Insert: {
-          created_at?: string | null
-          id?: string
-          name: string
-          price_add?: number | null
-          variation_id: string
-        }
-        Update: {
-          created_at?: string | null
-          id?: string
-          name?: string
-          price_add?: number | null
-          variation_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "variation_options_variation_id_fkey"
-            columns: ["variation_id"]
-            isOneToOne: false
-            referencedRelation: "product_variations"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       wadiah_transactions: {
         Row: {
@@ -806,8 +653,6 @@ export type Database = {
           order_id: string
         }[]
       }
-      show_limit: { Args: never; Returns: number }
-      show_trgm: { Args: { "": string }; Returns: string[] }
     }
     Enums: {
       app_role: "admin" | "parent" | "staff" | "partner" | "cashier"

@@ -33,8 +33,10 @@ import {
   Clock,
   AlertCircle,
   CreditCard,
+  AlertTriangle,
 } from "lucide-react";
 import { MidtransPaymentReport } from "@/components/reports/MidtransPaymentReport";
+import { StudentArrearsReport } from "@/components/reports/StudentArrearsReport";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LAUNDRY_CATEGORIES } from "@/lib/constants";
 import {
@@ -1128,18 +1130,22 @@ export default function Reports() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-3 lg:w-[600px]">
+          <TabsList className="grid w-full grid-cols-4 lg:w-[800px]">
             <TabsTrigger value="summary" className="flex items-center gap-2">
               <TrendingUp className="h-4 w-4" />
-              Ringkasan & Bagi Hasil
+              <span className="hidden sm:inline">Ringkasan</span>
             </TabsTrigger>
             <TabsTrigger value="bills" className="flex items-center gap-2">
               <ClipboardList className="h-4 w-4" />
-              Laporan Tagihan
+              <span className="hidden sm:inline">Tagihan</span>
+            </TabsTrigger>
+            <TabsTrigger value="arrears" className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4" />
+              <span className="hidden sm:inline">Tunggakan</span>
             </TabsTrigger>
             <TabsTrigger value="midtrans" className="flex items-center gap-2">
               <CreditCard className="h-4 w-4" />
-              Pembayaran Midtrans
+              <span className="hidden sm:inline">Midtrans</span>
             </TabsTrigger>
           </TabsList>
 
@@ -1995,6 +2001,11 @@ export default function Reports() {
                 </Card>
               </>
             )}
+          </TabsContent>
+
+          {/* Student Arrears Report Tab */}
+          <TabsContent value="arrears" className="mt-6">
+            <StudentArrearsReport />
           </TabsContent>
 
           {/* Midtrans Payment Report Tab */}
