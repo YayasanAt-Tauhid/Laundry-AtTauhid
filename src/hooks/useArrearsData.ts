@@ -123,6 +123,39 @@ export function useArrearsData() {
 
   useEffect(() => {
     fetchArrears();
+
+    // Setup realtime subscription to auto-update when orders change
+    const subscription = supabase
+      .channel("laundry_orders_changes")
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "laundry_orders",
+        },
+        (payload) => {
+          console.log("Order updated:", payload);
+          fetchArrears();
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "DELETE",
+          schema: "public",
+          table: "laundry_orders",
+        },
+        (payload) => {
+          console.log("Order deleted:", payload);
+          fetchArrears();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const classes = useMemo(() => {
