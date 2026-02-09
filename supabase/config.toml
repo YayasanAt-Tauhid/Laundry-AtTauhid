@@ -1,1 +1,4 @@
-project_id = "mxspjofeyklodydnergm"
+project_id = "ktdqsyfqzbsnbsxumwbm"
+
+[functions.create-payment-link]
+verify_jwt = false

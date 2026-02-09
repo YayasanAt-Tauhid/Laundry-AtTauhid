@@ -20,6 +20,7 @@ import {
   Wallet,
   Upload,
   PiggyBank,
+  MessageSquareText,
 } from "lucide-react";
 import { USER_ROLES, type UserRole } from "@/lib/constants";
 
@@ -103,6 +104,12 @@ const navItems: NavItem[] = [
     href: "/cashier-reports",
     icon: <FileText className="h-5 w-5" />,
     roles: ["admin", "cashier"],
+  },
+  {
+    label: "Pesan Tunggakan",
+    href: "/arrears-messaging",
+    icon: <MessageSquareText className="h-5 w-5" />,
+    roles: ["admin"],
   },
   {
     label: "Migrasi Data",
