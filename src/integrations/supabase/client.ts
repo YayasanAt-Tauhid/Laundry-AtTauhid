@@ -8,7 +8,7 @@ console.log('APP_ENV:', import.meta.env.VITE_APP_ENV)
 console.log('MODE:', import.meta.env.MODE)
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY2;
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
