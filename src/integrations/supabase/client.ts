@@ -6,9 +6,6 @@ console.log("URL =", import.meta.env.VITE_SUPABASE_URL)
 console.log("PUB =", import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY)
 console.log("ALL =", import.meta.env)
 
-
-
-
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
