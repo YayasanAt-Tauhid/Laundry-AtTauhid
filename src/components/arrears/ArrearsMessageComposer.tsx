@@ -86,7 +86,9 @@ export function ArrearsMessageComposer({ student, open, onOpenChange }: Props) {
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
 
-      setPaymentUrl(data.redirect_url);
+      // Generate in-app payment URL
+      const paymentUrl = `${window.location.origin}/pay?token=${data.order_id}`;
+      setPaymentUrl(paymentUrl);
       toast({ title: "Link pembayaran berhasil dibuat!" });
     } catch (err) {
       console.error("Failed to generate payment link:", err);
@@ -177,7 +179,7 @@ export function ArrearsMessageComposer({ student, open, onOpenChange }: Props) {
           </div>
 
           {!student.parentPhone && (
-            <p className="text-xs text-amber-600">
+            <p className="text-xs text-destructive/80">
               ⚠️ Nomor HP orang tua belum terdaftar. Link WhatsApp akan dibuka tanpa nomor tujuan.
             </p>
           )}
