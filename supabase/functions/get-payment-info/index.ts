@@ -5,6 +5,26 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// Admin fee configuration (same as create-midtrans-token)
+const QRIS_MAX_AMOUNT = 628000;
+const QRIS_FEE_PERCENT = 0.7; // 0.7%
+const VA_FEE_FLAT = 4400; // Rp 4,400
+
+// Calculate admin fee based on amount
+function calculateAdminFee(baseAmount: number): { adminFee: number; paymentType: "qris" | "va" } {
+  if (baseAmount <= QRIS_MAX_AMOUNT) {
+    return {
+      adminFee: Math.ceil(baseAmount * (QRIS_FEE_PERCENT / 100)),
+      paymentType: "qris",
+    };
+  } else {
+    return {
+      adminFee: VA_FEE_FLAT,
+      paymentType: "va",
+    };
+  }
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -93,6 +113,10 @@ serve(async (req) => {
     // Calculate total amount
     const totalAmount = orders.reduce((sum, o) => sum + (o.total_price || 0), 0);
 
+    // Calculate admin fee based on total amount
+    const { adminFee, paymentType } = calculateAdminFee(totalAmount);
+    const grandTotal = totalAmount + adminFee;
+
     // Get snap token (should be same for all orders in this payment)
     const snapToken = firstOrder.midtrans_snap_token;
 
@@ -100,12 +124,17 @@ serve(async (req) => {
       throw new Error("Token pembayaran tidak tersedia");
     }
 
+    console.log(`Payment info: total=${totalAmount}, adminFee=${adminFee}, grandTotal=${grandTotal}, paymentType=${paymentType}`);
+
     return new Response(
       JSON.stringify({
         studentName: student.name,
         studentClass: student.class,
         orderCount: orders.length,
         totalAmount,
+        adminFee,
+        grandTotal,
+        paymentType,
         token: snapToken,
         midtransOrderId: token,
       }),

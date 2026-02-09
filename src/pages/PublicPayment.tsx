@@ -38,6 +38,9 @@ interface PaymentData {
   studentClass: string;
   orderCount: number;
   totalAmount: number;
+  adminFee: number;
+  grandTotal: number;
+  paymentType: "qris" | "va";
   token: string;
   midtransOrderId: string;
 }
@@ -243,12 +246,26 @@ export default function PublicPayment() {
               </div>
             </div>
 
-            {/* Total amount */}
-            <div className="border-t pt-4">
+            {/* Total amount with admin fee */}
+            <div className="border-t pt-4 space-y-2">
               <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Subtotal Laundry</span>
+                <span className="font-medium">
+                  {formatCurrency(paymentData.totalAmount)}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">
+                  Biaya Admin ({paymentData.paymentType === "qris" ? "0.7%" : "VA"})
+                </span>
+                <span className="font-medium">
+                  {formatCurrency(paymentData.adminFee)}
+                </span>
+              </div>
+              <div className="flex justify-between items-center pt-2 border-t">
                 <span className="text-lg font-medium">Total Pembayaran</span>
                 <span className="text-2xl font-bold text-primary">
-                  {formatCurrency(paymentData.totalAmount)}
+                  {formatCurrency(paymentData.grandTotal)}
                 </span>
               </div>
             </div>
@@ -275,7 +292,9 @@ export default function PublicPayment() {
 
             {/* Payment methods info */}
             <p className="text-xs text-center text-muted-foreground">
-              Pembayaran melalui QRIS, Transfer Bank, atau E-Wallet
+              {paymentData.paymentType === "qris" 
+                ? "Pembayaran melalui QRIS (GoPay, ShopeePay, dll)" 
+                : "Pembayaran melalui Transfer Bank (Virtual Account)"}
             </p>
           </CardContent>
         </Card>
