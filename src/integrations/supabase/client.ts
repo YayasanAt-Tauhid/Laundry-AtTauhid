@@ -3,7 +3,6 @@ import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
 console.log("URL =", import.meta.env.VITE_SUPABASE_URL)
-console.log("PUB =", import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY)
 console.log("PUB =", import.meta.env.VITE_SUPABASE_ANON_KEY)
 console.log("ALL =", import.meta.env)
 
