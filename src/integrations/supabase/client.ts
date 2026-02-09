@@ -2,14 +2,16 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-console.log("URL =", import.meta.env.VITE_SUPABASE_URL)
-console.log("PUB =", import.meta.env.VITE_SUPABASE_ANON_KEY2)
-console.log("PUB2 =", import.meta.env.VITE_SUPABASE_ANON_KEY)
-console.log('APP_ENV:', import.meta.env.VITE_APP_ENV)
-console.log('MODE:', import.meta.env.MODE)
+const isProd = import.meta.env.VITE_APP_ENV === 'production'
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY2;
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
+const SUPABASE_KEY = isProd
+  ? import.meta.env.VITE_SUPABASE_ANON_KEY_PROD
+  : import.meta.env.VITE_SUPABASE_ANON_KEY_DEV
+
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  throw new Error('Supabase ENV missing')
+}
 
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
