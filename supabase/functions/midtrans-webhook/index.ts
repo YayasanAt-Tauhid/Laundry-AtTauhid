@@ -1,6 +1,10 @@
 // Midtrans Webhook Handler for Laundry At-Tauhid
 // Handles single and bulk payment notifications
 //
+// MULTI-APP ISOLATION:
+// Only processes orders with APP_IDENTIFIER in midtrans_order_id
+// Custom fields are logged for debugging
+//
 // ENVIRONMENT VARIABLES:
 // - MIDTRANS_SERVER_KEY (required)
 // - SUPABASE_URL (auto)
@@ -8,6 +12,9 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+// App identifier for multi-app Midtrans isolation
+const APP_IDENTIFIER = "LAUNDRY-ATTAUHID";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -59,6 +66,16 @@ serve(async (req) => {
     console.log(`  Status: ${notification.transaction_status}`);
     console.log(`  Payment: ${notification.payment_type}`);
     console.log(`  Amount: ${notification.gross_amount}`);
+    // Log custom fields for debugging (app identification)
+    if (notification.custom_field1) {
+      console.log(`  Custom Field 1 (App): ${notification.custom_field1}`);
+    }
+    if (notification.custom_field2) {
+      console.log(`  Custom Field 2 (Type): ${notification.custom_field2}`);
+    }
+    if (notification.custom_field3) {
+      console.log(`  Custom Field 3 (Category): ${notification.custom_field3}`);
+    }
 
     // Verify signature from Midtrans
     const serverKey = Deno.env.get("MIDTRANS_SERVER_KEY");
@@ -125,9 +142,26 @@ serve(async (req) => {
       shouldClearSnapToken = true;
     }
 
+    // ===== MULTI-APP ISOLATION CHECK =====
+    // Only process orders that belong to THIS application
+    if (!orderId.startsWith(APP_IDENTIFIER)) {
+      console.log(`⚠ Order ${orderId} does not belong to ${APP_IDENTIFIER} - ignoring`);
+      console.log("════════════════════════════════════════");
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: `Order does not belong to ${APP_IDENTIFIER} - ignored`,
+        }),
+        {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 200,
+        },
+      );
+    }
+
     // Check if this is a BULK payment (multiple orders) or SINGLE payment
-    const isBulkPayment = orderId.startsWith("BULK-");
-    const isSinglePayment = orderId.startsWith("LAUNDRY-");
+    const isBulkPayment = orderId.includes("-BULK-");
+    const isSinglePayment = orderId.includes("-SINGLE-");
 
     if (isBulkPayment) {
       // ========== BULK PAYMENT ==========

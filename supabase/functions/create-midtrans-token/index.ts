@@ -1,8 +1,16 @@
-// Follow this setup guide to integrate the Deno runtime into your application:
-// https://deno.land/manual/getting_started/setup_your_environment
+// Midtrans Token Creator for Laundry At-Tauhid
+// Creates Snap tokens for single and bulk payments
+//
+// CUSTOM FIELDS (for multi-app Midtrans account):
+// - custom_field1: App identifier (LAUNDRY-ATTAUHID)
+// - custom_field2: Payment type (SINGLE / BULK:n)
+// - custom_field3: Laundry category
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+// App identifier for multi-app Midtrans isolation
+const APP_IDENTIFIER = "LAUNDRY-ATTAUHID";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -98,12 +106,11 @@ serve(async (req) => {
       isBulk = false,
     }: PaymentRequest = await req.json();
 
-    // Generate unique order ID for Midtrans
-    // For bulk payments, use BULK-{timestamp} format
-    // For single payments, use LAUNDRY-{uuid8}-{timestamp} format
+    // Generate unique order ID for Midtrans with APP_IDENTIFIER
+    // Format: {APP_IDENTIFIER}-{TYPE}-{timestamp}
     const midtransOrderId = isBulk
-      ? `BULK-${Date.now()}`
-      : `LAUNDRY-${orderId.substring(0, 8)}-${Date.now()}`;
+      ? `${APP_IDENTIFIER}-BULK-${Date.now()}`
+      : `${APP_IDENTIFIER}-SINGLE-${orderId.substring(0, 8)}-${Date.now()}`;
 
     // Determine which order IDs to update
     const orderIdsToUpdate = isBulk && orderIds ? orderIds : [orderId];
@@ -137,8 +144,8 @@ serve(async (req) => {
       });
     }
 
-    // Prepare Midtrans transaction data
-    const transactionData: any = {
+    // Prepare Midtrans transaction data with custom fields for app identification
+    const transactionData: Record<string, any> = {
       transaction_details: {
         order_id: midtransOrderId,
         gross_amount: totalWithFee,
@@ -149,6 +156,10 @@ serve(async (req) => {
         email: customerEmail || "customer@example.com",
         phone: customerPhone || "",
       },
+      // Custom fields for LAUNDRY app identification (visible in Midtrans dashboard)
+      custom_field1: APP_IDENTIFIER,
+      custom_field2: isBulk ? `BULK:${orderIdsToUpdate.length}` : "SINGLE",
+      custom_field3: category,
     };
 
     // Add enabled payment methods if provided

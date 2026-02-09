@@ -65,6 +65,8 @@ interface Bill {
   wadiah_used: number | null;
   rounding_applied: number | null;
   notes: string | null;
+  midtrans_snap_token: string | null;
+  updated_at: string;
   students: {
     id: string;
     name: string;
@@ -158,6 +160,8 @@ export default function Bills() {
           wadiah_used,
           rounding_applied,
           notes,
+          midtrans_snap_token,
+          updated_at,
           students!inner (id, name, class, nik),
           laundry_partners (name)
         `,
@@ -199,6 +203,8 @@ export default function Bills() {
           wadiah_used,
           rounding_applied,
           notes,
+          midtrans_snap_token,
+          updated_at,
           students!inner (id, name, class, nik),
           laundry_partners (name)
         `,
@@ -591,6 +597,9 @@ export default function Bills() {
         customerEmail: profile?.email || undefined,
         customerPhone: profile?.phone || undefined,
         customerName: profile?.full_name || undefined,
+        // Pass existing snap token for reuse if not expired
+        existingSnapToken: bill.midtrans_snap_token,
+        tokenUpdatedAt: bill.updated_at,
       },
       () => {
         // onSuccess
