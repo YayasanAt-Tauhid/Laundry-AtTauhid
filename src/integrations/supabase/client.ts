@@ -13,7 +13,7 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
   throw new Error('Supabase ENV missing')
 }
 
-export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_KEY, {
   auth: {
     storage: localStorage,
     persistSession: true,
