@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,6 +27,12 @@ import {
 } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Loader2,
   Download,
   Search,
@@ -38,9 +44,10 @@ import {
   ChevronRight,
   Printer,
   RefreshCw,
-  Building2,
   Clock,
   Eye,
+  FileSpreadsheet,
+  ChevronDown,
 } from "lucide-react";
 import { format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
@@ -52,6 +59,7 @@ import {
 } from "@/components/ui/dialog";
 import { LAUNDRY_CATEGORIES } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import * as XLSX from "xlsx-js-style";
 
 // Types
 interface StudentArrear {
@@ -59,6 +67,8 @@ interface StudentArrear {
   student_name: string;
   student_class: string;
   student_nik: string;
+  parent_name: string | null;
+  parent_phone: string | null;
   total_unpaid_orders: number;
   total_unpaid_amount: number;
   oldest_order_date: string;
@@ -143,7 +153,7 @@ export function StudentArrearsReport() {
           status,
           created_at,
           student_id,
-          students (id, name, class, nik),
+          students (id, name, class, nik, parent_id),
           laundry_partners (name)
         `)
         .not("status", "in", '("DIBAYAR","SELESAI","DITOLAK_MITRA")')
@@ -161,6 +171,30 @@ export function StudentArrearsReport() {
 
       if (error) throw error;
 
+      // Get all parent_ids from students
+      const parentIds = [...new Set(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (data || []).map((order: any) => order.students?.parent_id).filter(Boolean)
+      )];
+
+      // Fetch parent profiles
+      let parentProfiles: Record<string, { full_name: string; phone: string | null }> = {};
+      if (parentIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from("profiles")
+          .select("user_id, full_name, phone")
+          .in("user_id", parentIds);
+        
+        if (profiles) {
+          parentProfiles = profiles.reduce((acc, p) => {
+            acc[p.user_id] = { full_name: p.full_name, phone: p.phone };
+            return acc;
+          }, {} as Record<string, { full_name: string; phone: string | null }>);
+        }
+      }
+
+      if (error) throw error;
+
       // Group by student
       const studentMap = new Map<string, StudentArrear>();
 
@@ -172,6 +206,8 @@ export function StudentArrearsReport() {
         const studentName = order.students.name || "-";
         const studentClass = order.students.class || "-";
         const studentNik = order.students.nik || "-";
+        const parentId = order.students.parent_id;
+        const parentData = parentId ? parentProfiles[parentId] : null;
 
         // Filter by class
         if (filterClass !== "all" && studentClass !== filterClass) return;
@@ -206,6 +242,8 @@ export function StudentArrearsReport() {
             student_name: studentName,
             student_class: studentClass,
             student_nik: studentNik,
+            parent_name: parentData?.full_name || null,
+            parent_phone: parentData?.phone || null,
             total_unpaid_orders: 0,
             total_unpaid_amount: 0,
             oldest_order_date: order.laundry_date,
@@ -278,6 +316,170 @@ export function StudentArrearsReport() {
   }, [currentPage, searchQuery, filterClass, sortBy, customStartDate, customEndDate]);
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+
+  // Helper: normalize phone number to +62 format
+  const normalizePhoneNumber = (phone: string | null): string => {
+    if (!phone) return "";
+    let cleaned = phone.replace(/\D/g, "");
+    if (cleaned.startsWith("0")) {
+      cleaned = "62" + cleaned.substring(1);
+    }
+    if (!cleaned.startsWith("62")) {
+      cleaned = "62" + cleaned;
+    }
+    return "+" + cleaned;
+  };
+
+  // Helper: get category label in Indonesian
+  const getCategoryLabel = (category: string): string => {
+    return LAUNDRY_CATEGORIES[category as keyof typeof LAUNDRY_CATEGORIES]?.label || category;
+  };
+
+  // Export contact list for WhatsApp import
+  const handleExportContactExcel = () => {
+    // Filter students who have parent phone
+    const studentsWithParent = arrears.filter((s) => s.parent_phone);
+    
+    if (studentsWithParent.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Tidak ada data orang tua untuk diekspor",
+      });
+      return;
+    }
+
+    // Show warning if some students don't have parent data
+    if (studentsWithParent.length < arrears.length) {
+      toast({
+        variant: "default",
+        title: "Peringatan",
+        description: `${arrears.length - studentsWithParent.length} siswa tidak memiliki data orang tua dan tidak ikut diexport.`,
+      });
+    }
+
+    // Create data rows (no header)
+    const data = studentsWithParent.map((s) => [
+      `${s.student_name}#${s.student_nik}`,
+      normalizePhoneNumber(s.parent_phone),
+    ]);
+
+    // Create workbook
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(data);
+
+    // Set column widths
+    ws["!cols"] = [{ wch: 40 }, { wch: 20 }];
+
+    XLSX.utils.book_append_sheet(wb, ws, "Kontak");
+    XLSX.writeFile(wb, `excel_import_contact_${format(new Date(), "yyyyMMdd")}.xlsx`);
+
+    toast({
+      title: "Berhasil",
+      description: `File kontak berhasil diunduh (${studentsWithParent.length} kontak)`,
+    });
+  };
+
+  // Export personalized messages for broadcast
+  const handleExportPersonalizedMessages = () => {
+    // Filter students who have parent phone
+    const studentsWithParent = arrears.filter((s) => s.parent_phone);
+    
+    if (studentsWithParent.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Tidak ada data orang tua untuk diekspor",
+      });
+      return;
+    }
+
+    // Show warning if some students don't have parent data
+    if (studentsWithParent.length < arrears.length) {
+      toast({
+        variant: "default",
+        title: "Peringatan",
+        description: `${arrears.length - studentsWithParent.length} siswa tidak memiliki data orang tua dan tidak ikut diexport.`,
+      });
+    }
+
+    // Get app URL for payment link
+    const appUrl = window.location.origin;
+    const paymentUrl = `${appUrl}/bills`;
+
+    // Create header row with yellow background
+    const headerStyle = {
+      fill: { fgColor: { rgb: "FFFF00" } },
+      font: { bold: true },
+      alignment: { horizontal: "center" as const },
+    };
+
+    // Create data rows
+    const data = studentsWithParent.map((s, index) => {
+      // Build order details string
+      const orderDetails = s.orders
+        .map((o) => `${formatDate(o.laundry_date)} – ${getCategoryLabel(o.category)} – ${formatCurrency(o.total_price)}`)
+        .join(",\n");
+
+      // Build personalized message with payment link
+      const message = `Assalamualaikum warahmatullahi wabarakatuh.
+
+Bapak/Ibu yang kami hormati,
+
+Kami ingin menyampaikan informasi bahwa putra/putri Bapak/Ibu ${s.student_name} kelas ${s.student_class} saat ini masih memiliki tunggakan uang laundry sebesar ${formatCurrency(s.total_unpaid_amount)} dari ${s.total_unpaid_orders} transaksi.
+
+Rincian tunggakan:
+${orderDetails}.
+
+Untuk kemudahan pembayaran, Bapak/Ibu dapat melakukan pembayaran secara online melalui link berikut:
+${paymentUrl}
+
+Kami mohon kesediaan Bapak/Ibu untuk melakukan pelunasan pada kesempatan terdekat. Apabila sudah melakukan pembayaran atau terdapat hal yang ingin dikonfirmasi, silakan menghubungi kami.
+
+Atas perhatian dan kerja sama Bapak/Ibu, kami ucapkan terima kasih.
+
+Wassalamualaikum warahmatullahi wabarakatuh.`;
+
+      return [
+        index + 1,
+        `${s.student_name}#${s.student_nik}`,
+        normalizePhoneNumber(s.parent_phone),
+        message,
+      ];
+    });
+
+    // Create workbook
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([
+      ["SI", "Contact Name", "Phone No", "Message"],
+      ...data,
+    ]);
+
+    // Apply header styling
+    ["A1", "B1", "C1", "D1"].forEach((cell) => {
+      if (ws[cell]) {
+        ws[cell].s = headerStyle;
+      }
+    });
+
+    // Set column widths
+    ws["!cols"] = [{ wch: 5 }, { wch: 40 }, { wch: 20 }, { wch: 100 }];
+
+    // Set row heights for message column
+    ws["!rows"] = [{ hpt: 20 }]; // Header row
+    data.forEach((_, index) => {
+      if (!ws["!rows"]) ws["!rows"] = [];
+      ws["!rows"][index + 1] = { hpt: 150 }; // Data rows with taller height for messages
+    });
+
+    XLSX.utils.book_append_sheet(wb, ws, "Pesan Personal");
+    XLSX.writeFile(wb, `personalized_messages_${format(new Date(), "yyyyMMdd")}.xlsx`);
+
+    toast({
+      title: "Berhasil",
+      description: `File pesan personal berhasil diunduh (${studentsWithParent.length} pesan)`,
+    });
+  };
 
   const handleExportCSV = () => {
     if (arrears.length === 0) {
@@ -595,8 +797,29 @@ export function StudentArrearsReport() {
               </Button>
               <Button variant="outline" size="sm" onClick={handleExportCSV}>
                 <Download className="h-4 w-4 mr-1" />
-                Export
+                CSV
               </Button>
+              
+              {/* Excel Export Dropdown */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <FileSpreadsheet className="h-4 w-4 mr-1" />
+                    Excel
+                    <ChevronDown className="h-3 w-3 ml-1" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={handleExportContactExcel}>
+                    <Users className="h-4 w-4 mr-2" />
+                    Download Kontak WA
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleExportPersonalizedMessages}>
+                    <FileSpreadsheet className="h-4 w-4 mr-2" />
+                    Download Pesan Personal
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </CardContent>

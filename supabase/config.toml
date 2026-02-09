@@ -1,1 +1,4 @@
-project_id = "sonnfclnzsasjifieuog"
+project_id = "aiwtmudclbwbgtqwcmad"
+
+[functions.get-payment-info]
+verify_jwt = false

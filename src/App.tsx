@@ -20,6 +20,8 @@ import DataMigration from "./pages/DataMigration";
 import UserManagement from "./pages/UserManagement";
 import StaffBills from "./pages/StaffBills";
 import WadiahBalance from "./pages/WadiahBalance";
+import ArrearsMessaging from "./pages/ArrearsMessaging";
+import PublicPayment from "./pages/PublicPayment";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 
@@ -59,6 +61,8 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/" element={<Index />} />
+      {/* Public payment page - no auth required */}
+      <Route path="/pay" element={<PublicPayment />} />
       <Route
         path="/dashboard"
         element={
@@ -178,6 +182,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute allowedRoles={["admin"]}>
             <UserManagement />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/arrears-messaging"
+        element={
+          <ProtectedRoute allowedRoles={["admin"]}>
+            <ArrearsMessaging />
           </ProtectedRoute>
         }
       />
