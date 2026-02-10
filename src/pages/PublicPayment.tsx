@@ -41,9 +41,10 @@ interface PaymentData {
   adminFee: number;
   grandTotal: number;
   paymentType: "qris" | "va";
-  token: string;
-  midtransOrderId: string;
+  token?: string;
+  midtransOrderId?: string;
   expired?: boolean;
+  paid?: boolean;
   orderIds?: string[];
 }
 
@@ -70,11 +71,11 @@ export default function PublicPayment() {
       }
 
       try {
-        const { data, error } = await supabase.functions.invoke("get-payment-info", {
+        const { data, error: fnError } = await supabase.functions.invoke("get-payment-info", {
           body: { token: paymentToken },
         });
 
-        if (error) throw error;
+        if (fnError) throw fnError;
         if (data?.error) throw new Error(data.error);
 
         setPaymentData(data);
@@ -185,6 +186,56 @@ export default function PublicPayment() {
   }
 
   if (!paymentData) return null;
+
+  // Paid/Lunas state
+  if (paymentData.paid) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-accent/30 to-background py-8 px-4">
+        <div className="max-w-md mx-auto space-y-6">
+          <div className="text-center space-y-2">
+            <div className="flex items-center justify-center gap-2 mb-4">
+              <School className="h-8 w-8 text-primary" />
+              <h1 className="text-2xl font-bold text-primary">At-Tauhid</h1>
+            </div>
+          </div>
+
+          <Card className="border-green-200">
+            <CardContent className="pt-8 pb-8 text-center space-y-4">
+              <CheckCircle className="h-20 w-20 text-green-500 mx-auto" />
+              <h2 className="text-2xl font-bold text-green-700">Sudah Lunas</h2>
+              <p className="text-muted-foreground">Pembayaran untuk tagihan ini sudah dilakukan sebelumnya.</p>
+
+              <div className="bg-muted/50 rounded-lg p-4 space-y-2 text-left">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Nama Siswa</span>
+                  <span className="font-medium">{paymentData.studentName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Kelas</span>
+                  <span className="font-medium">{paymentData.studentClass}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Jumlah Order</span>
+                  <span className="font-medium">{paymentData.orderCount} order</span>
+                </div>
+                <div className="flex justify-between pt-2 border-t">
+                  <span className="font-medium">Total Dibayar</span>
+                  <span className="text-lg font-bold text-green-600">
+                    {formatCurrency(paymentData.grandTotal)}
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="text-center text-xs text-muted-foreground space-y-1">
+            <p>Powered by Midtrans Payment Gateway</p>
+            <p>© {new Date().getFullYear()} At-Tauhid Laundry</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Expired state - show regenerate option
   if (paymentData.expired) {
