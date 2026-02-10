@@ -25,6 +25,18 @@ function calculateAdminFee(baseAmount: number): { adminFee: number; paymentType:
   }
 }
 
+// Helper to map orders to item details for frontend
+function mapOrderItems(orders: any[]) {
+  return orders.map((o: any) => ({
+    id: o.id,
+    category: o.category || "-",
+    weight_kg: o.weight_kg,
+    item_count: o.item_count,
+    total_price: o.total_price || 0,
+    laundry_date: o.laundry_date,
+  }));
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -64,6 +76,10 @@ serve(async (req) => {
         status,
         midtrans_order_id,
         midtrans_snap_token,
+        category,
+        weight_kg,
+        item_count,
+        laundry_date,
         student:students!laundry_orders_student_id_fkey (
           id,
           name,
@@ -87,6 +103,10 @@ serve(async (req) => {
           total_price,
           status,
           midtrans_order_id,
+          category,
+          weight_kg,
+          item_count,
+          laundry_date,
           student:students!laundry_orders_student_id_fkey (
             id,
             name,
@@ -99,9 +119,22 @@ serve(async (req) => {
         const firstStatus = existingOrders[0].status;
         
         if (firstStatus === "DIBAYAR" || firstStatus === "SELESAI") {
+          const student = existingOrders[0].student as { id: string; name: string; class: string } | null;
+          const totalAmount = existingOrders.reduce((sum, o) => sum + (o.total_price || 0), 0);
+          const { adminFee, paymentType } = calculateAdminFee(totalAmount);
           return new Response(
-            JSON.stringify({ error: "Pembayaran sudah dilakukan sebelumnya" }),
-            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            JSON.stringify({
+              paid: true,
+              studentName: student?.name || "Unknown",
+              studentClass: student?.class || "",
+              orderCount: existingOrders.length,
+              totalAmount,
+              adminFee,
+              grandTotal: totalAmount + adminFee,
+              paymentType,
+              orderItems: mapOrderItems(existingOrders),
+            }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
 
@@ -123,6 +156,7 @@ serve(async (req) => {
             paymentType,
             midtransOrderId: token,
             orderIds: existingOrders.map(o => o.id),
+            orderItems: mapOrderItems(existingOrders),
           }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
@@ -151,9 +185,57 @@ serve(async (req) => {
 
     // Get snap token (should be same for all orders in this payment)
     const snapToken = firstOrder.midtrans_snap_token;
+    const midtransOrderId = firstOrder.midtrans_order_id;
 
     if (!snapToken) {
       throw new Error("Token pembayaran tidak tersedia");
+    }
+
+    // Check Midtrans transaction status to see if token is still valid
+    const MIDTRANS_SERVER_KEY = Deno.env.get("MIDTRANS_SERVER_KEY");
+    const MIDTRANS_IS_PRODUCTION = Deno.env.get("MIDTRANS_IS_PRODUCTION") === "true";
+    
+    if (MIDTRANS_SERVER_KEY && midtransOrderId) {
+      try {
+        const statusUrl = MIDTRANS_IS_PRODUCTION
+          ? `https://api.midtrans.com/v2/${midtransOrderId}/status`
+          : `https://api.sandbox.midtrans.com/v2/${midtransOrderId}/status`;
+        
+        const authString = btoa(`${MIDTRANS_SERVER_KEY}:`);
+        const statusResponse = await fetch(statusUrl, {
+          headers: {
+            Accept: "application/json",
+            Authorization: `Basic ${authString}`,
+          },
+        });
+        
+        const statusData = await statusResponse.json();
+        console.log(`Midtrans status for ${midtransOrderId}:`, statusData.transaction_status, statusData.status_code);
+        
+        // If transaction is expired, deny, or cancel — return as expired
+        const expiredStatuses = ["expire", "deny", "cancel"];
+        if (statusResponse.ok && expiredStatuses.includes(statusData.transaction_status)) {
+          return new Response(
+            JSON.stringify({
+              expired: true,
+              studentName: student.name,
+              studentClass: student.class,
+              orderCount: orders.length,
+              totalAmount,
+              adminFee,
+              grandTotal,
+              paymentType,
+              midtransOrderId: token,
+              orderIds: orders.map(o => o.id),
+              orderItems: mapOrderItems(orders),
+            }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+      } catch (err) {
+        console.error("Failed to check Midtrans status:", err);
+        // Continue with normal flow if check fails
+      }
     }
 
     console.log(`Payment info: total=${totalAmount}, adminFee=${adminFee}, grandTotal=${grandTotal}, paymentType=${paymentType}`);
@@ -169,6 +251,7 @@ serve(async (req) => {
         paymentType,
         token: snapToken,
         midtransOrderId: token,
+        orderItems: mapOrderItems(orders),
       }),
       {
         status: 200,
