@@ -5,7 +5,8 @@ import { useMidtransConfig } from "@/hooks/useMidtransConfig";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, CheckCircle, XCircle, CreditCard, ShieldCheck, School } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
+import { Loader2, CheckCircle, XCircle, CreditCard, ShieldCheck, School, RefreshCw, Package } from "lucide-react";
 import { formatCurrency } from "@/utils/format";
 
 declare global {
@@ -33,6 +34,15 @@ interface MidtransResult {
   status_message: string;
 }
 
+interface OrderItem {
+  id: string;
+  category: string;
+  weight_kg: number | null;
+  item_count: number | null;
+  total_price: number;
+  laundry_date: string | null;
+}
+
 interface PaymentData {
   studentName: string;
   studentClass: string;
@@ -41,16 +51,60 @@ interface PaymentData {
   adminFee: number;
   grandTotal: number;
   paymentType: "qris" | "va";
-  token: string;
-  midtransOrderId: string;
+  token?: string;
+  midtransOrderId?: string;
+  expired?: boolean;
+  paid?: boolean;
+  orderIds?: string[];
+  orderItems?: OrderItem[];
+}
+
+function OrderItemsList({ items }: { items?: OrderItem[] }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 text-sm font-medium">
+        <Package className="h-4 w-4 text-primary" />
+        <span>Rincian Tagihan</span>
+      </div>
+      <div className="bg-muted/50 rounded-lg divide-y">
+        {items.map((item, idx) => (
+          <div key={item.id} className="px-4 py-2.5 space-y-1">
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-medium">
+                {idx + 1}. {item.category}
+              </span>
+              <span className="text-sm font-semibold">
+                {formatCurrency(item.total_price)}
+              </span>
+            </div>
+            <div className="flex gap-3 text-xs text-muted-foreground">
+              {item.weight_kg && <span>{item.weight_kg} kg</span>}
+              {item.item_count && <span>{item.item_count} pcs</span>}
+              {item.laundry_date && (
+                <span>
+                  {new Date(item.laundry_date).toLocaleDateString("id-ID", {
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                  })}
+                </span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export default function PublicPayment() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { isReady: isMidtransReady, isLoading: isMidtransLoading } = useMidtransConfig();
   
   const [paymentData, setPaymentData] = useState<PaymentData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [regenerating, setRegenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [paymentStatus, setPaymentStatus] = useState<"idle" | "processing" | "success" | "pending" | "failed">("idle");
   const [paymentMessage, setPaymentMessage] = useState("");
@@ -67,12 +121,11 @@ export default function PublicPayment() {
       }
 
       try {
-        // Fetch payment data from edge function
-        const { data, error } = await supabase.functions.invoke("get-payment-info", {
+        const { data, error: fnError } = await supabase.functions.invoke("get-payment-info", {
           body: { token: paymentToken },
         });
 
-        if (error) throw error;
+        if (fnError) throw fnError;
         if (data?.error) throw new Error(data.error);
 
         setPaymentData(data);
@@ -86,6 +139,39 @@ export default function PublicPayment() {
 
     loadPaymentData();
   }, [paymentToken]);
+
+  const handleRegenerate = async () => {
+    if (!paymentData?.orderIds || !paymentData.midtransOrderId) return;
+
+    setRegenerating(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("regenerate-payment", {
+        body: {
+          oldMidtransOrderId: paymentData.midtransOrderId,
+          orderIds: paymentData.orderIds,
+          totalAmount: paymentData.grandTotal,
+          studentName: paymentData.studentName,
+        },
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      // Update URL with new token and reload data
+      setSearchParams({ token: data.order_id });
+      setPaymentData({
+        ...paymentData,
+        expired: false,
+        token: data.token,
+        midtransOrderId: data.order_id,
+      });
+    } catch (err) {
+      console.error("Failed to regenerate payment:", err);
+      setError(err instanceof Error ? err.message : "Gagal membuat ulang link pembayaran");
+    } finally {
+      setRegenerating(false);
+    }
+  };
 
   const handlePayNow = () => {
     if (!paymentData?.token || !window.snap) {
@@ -134,8 +220,8 @@ export default function PublicPayment() {
     );
   }
 
-  // Error state
-  if (error || !paymentData) {
+  // Error state (no data at all)
+  if (error && !paymentData) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-destructive/5 to-background flex items-center justify-center p-4">
         <Card className="w-full max-w-md text-center">
@@ -145,6 +231,137 @@ export default function PublicPayment() {
             <p className="text-muted-foreground">{error || "Data pembayaran tidak ditemukan"}</p>
           </CardContent>
         </Card>
+      </div>
+    );
+  }
+
+  if (!paymentData) return null;
+
+  // Paid/Lunas state
+  if (paymentData.paid) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-accent/30 to-background py-8 px-4">
+        <div className="max-w-md mx-auto space-y-6">
+          <div className="text-center space-y-2">
+            <div className="flex items-center justify-center gap-2 mb-4">
+              <School className="h-8 w-8 text-primary" />
+              <h1 className="text-2xl font-bold text-primary">At-Tauhid</h1>
+            </div>
+          </div>
+
+          <Card className="border-green-200">
+            <CardContent className="pt-8 pb-8 text-center space-y-4">
+              <CheckCircle className="h-20 w-20 text-green-500 mx-auto" />
+              <h2 className="text-2xl font-bold text-green-700">Sudah Lunas</h2>
+              <p className="text-muted-foreground">Pembayaran untuk tagihan ini sudah dilakukan sebelumnya.</p>
+
+              <div className="bg-muted/50 rounded-lg p-4 space-y-2 text-left">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Nama Siswa</span>
+                  <span className="font-medium">{paymentData.studentName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Kelas</span>
+                  <span className="font-medium">{paymentData.studentClass}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Jumlah Order</span>
+                  <span className="font-medium">{paymentData.orderCount} order</span>
+                </div>
+                <div className="flex justify-between pt-2 border-t">
+                  <span className="font-medium">Total Dibayar</span>
+                  <span className="text-lg font-bold text-green-600">
+                    {formatCurrency(paymentData.grandTotal)}
+                  </span>
+                </div>
+              </div>
+              <OrderItemsList items={paymentData.orderItems} />
+            </CardContent>
+          </Card>
+
+          <div className="text-center text-xs text-muted-foreground space-y-1">
+            <p>Powered by Midtrans Payment Gateway</p>
+            <p>© {new Date().getFullYear()} At-Tauhid Laundry</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Expired state - show regenerate option
+  if (paymentData.expired) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-secondary/10 to-background py-8 px-4">
+        <div className="max-w-md mx-auto space-y-6">
+          <div className="text-center space-y-2">
+            <div className="flex items-center justify-center gap-2 mb-4">
+              <School className="h-8 w-8 text-primary" />
+              <h1 className="text-2xl font-bold text-primary">At-Tauhid</h1>
+            </div>
+          </div>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg text-center">Link Pembayaran Kadaluarsa</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground text-center">
+                Link pembayaran ini sudah tidak berlaku. Anda bisa membuat link baru untuk melanjutkan pembayaran.
+              </p>
+
+              <div className="bg-muted/50 rounded-lg p-4 space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Nama Siswa</span>
+                  <span className="font-medium">{paymentData.studentName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Kelas</span>
+                  <span className="font-medium">{paymentData.studentClass}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Jumlah Order</span>
+                  <span className="font-medium">{paymentData.orderCount} order</span>
+                </div>
+                <div className="flex justify-between pt-2 border-t">
+                  <span className="font-medium">Total</span>
+                  <span className="text-lg font-bold text-primary">
+                    {formatCurrency(paymentData.grandTotal)}
+                  </span>
+                </div>
+              </div>
+
+              <OrderItemsList items={paymentData.orderItems} />
+
+              {error && (
+                <p className="text-sm text-destructive text-center">{error}</p>
+              )}
+
+              <Button
+                onClick={handleRegenerate}
+                disabled={regenerating}
+                className="w-full h-12 text-lg"
+                size="lg"
+              >
+                {regenerating ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                    Membuat link baru...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="h-5 w-5 mr-2" />
+                    Bayar Ulang
+                  </>
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+
+          <div className="text-center text-xs text-muted-foreground space-y-1">
+            <p>Powered by Midtrans Payment Gateway</p>
+            <p>© {new Date().getFullYear()} At-Tauhid Laundry</p>
+          </div>
+        </div>
       </div>
     );
   }
@@ -245,6 +462,9 @@ export default function PublicPayment() {
                 <span className="font-medium">{paymentData.orderCount} order</span>
               </div>
             </div>
+
+            {/* Order items breakdown */}
+            <OrderItemsList items={paymentData.orderItems} />
 
             {/* Total amount with admin fee */}
             <div className="border-t pt-4 space-y-2">

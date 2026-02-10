@@ -60,6 +60,7 @@ import {
   type SyariahPaymentData,
 } from "@/components/syariah";
 import { CheckBalanceDialog } from "@/components/staff/CheckBalanceDialog";
+import { PaymentHistory } from "@/components/cashier/PaymentHistory";
 
 interface Bill {
   id: string;
@@ -133,6 +134,7 @@ export default function CashierPOS() {
   const [selectedBills, setSelectedBills] = useState<Set<string>>(new Set());
   const [processingPayment, setProcessingPayment] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [selectedStudentId, setSelectedStudentId] = useState<string | undefined>(undefined);
   const [allClasses, setAllClasses] = useState<string[]>([]);
 
   // Autocomplete states
@@ -241,6 +243,7 @@ export default function CashierPOS() {
     setSearchQuery(student.name);
     setShowSuggestions(false);
     setSuggestions([]);
+    setSelectedStudentId(student.id);
     // Trigger search immediately with selected student name
     searchBills(student.name, filterClass);
   };
@@ -288,11 +291,16 @@ export default function CashierPOS() {
 
       if (!students || students.length === 0) {
         setBills([]);
+        setSelectedStudentId(undefined);
         setLoading(false);
         return;
       }
 
       const studentIds = students.map((s) => s.id);
+      // If exactly one student matched, set as selected for payment history
+      if (students.length === 1) {
+        setSelectedStudentId(students[0].id);
+      }
 
       // Then fetch bills for those students
       const { data, error } = await supabase
@@ -1265,6 +1273,9 @@ export default function CashierPOS() {
             })}
           </div>
         )}
+
+        {/* Riwayat Pembayaran */}
+        <PaymentHistory studentId={selectedStudentId} />
 
         {/* Payment Modal */}
         <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>

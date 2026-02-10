@@ -51,6 +51,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { Printer } from "lucide-react";
 
 // Types
 interface WadiahTransaction {
@@ -461,6 +462,84 @@ export function CashierWadiahReport({
       link.download = `laporan-wadiah-saldo-${format(new Date(), "yyyyMMdd")}.csv`;
       link.click();
     }
+  };
+
+  const handlePrintWadiahReceipt = (tx: WadiahTransaction) => {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Tidak dapat membuka jendela cetak. Pastikan popup tidak diblokir.",
+      });
+      return;
+    }
+
+    const txDate = new Date(tx.created_at);
+    const typeConfig = TRANSACTION_TYPE_CONFIG[tx.transaction_type];
+    const typeLabel = typeConfig?.label || tx.transaction_type;
+    const isDebit = tx.transaction_type === "payment" || tx.transaction_type === "refund";
+    const receiptNumber = `WDH-${tx.id.slice(-8).toUpperCase()}`;
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Kwitansi Wadiah - ${receiptNumber}</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { font-family: 'Courier New', monospace; padding: 10mm; max-width: 80mm; margin: 0 auto; }
+          .receipt { width: 100%; }
+          .header { text-align: center; margin-bottom: 10px; border-bottom: 1px dashed #000; padding-bottom: 10px; }
+          .header h1 { font-size: 14px; font-weight: bold; }
+          .header p { font-size: 10px; margin-top: 4px; }
+          .info { margin: 10px 0; font-size: 10px; }
+          .info-row { display: flex; justify-content: space-between; margin: 3px 0; }
+          .divider { border-top: 1px dashed #000; margin: 8px 0; }
+          .total-section { border-top: 1px dashed #000; padding-top: 8px; margin-top: 8px; }
+          .total-row { display: flex; justify-content: space-between; font-size: 11px; margin: 2px 0; }
+          .total-row.grand { font-size: 13px; font-weight: bold; margin-top: 4px; }
+          .footer { text-align: center; margin-top: 12px; font-size: 9px; border-top: 1px dashed #000; padding-top: 8px; }
+          .notes { font-size: 9px; margin-top: 6px; font-style: italic; }
+          @media print { body { padding: 0; } @page { margin: 5mm; size: 80mm auto; } }
+        </style>
+      </head>
+      <body>
+        <div class="receipt">
+          <div class="header">
+            <h1>LAUNDRY AT-TAUHID</h1>
+            <p>Kwitansi Transaksi Wadiah</p>
+          </div>
+          <div class="info">
+            <div class="info-row"><span>No:</span><span>${receiptNumber}</span></div>
+            <div class="info-row"><span>Tanggal:</span><span>${txDate.toLocaleDateString("id-ID")}</span></div>
+            <div class="info-row"><span>Waktu:</span><span>${txDate.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}</span></div>
+          </div>
+          <div class="divider"></div>
+          <div class="info">
+            <div class="info-row"><span>Siswa:</span><span>${tx.students?.name || "-"}</span></div>
+            <div class="info-row"><span>Kelas:</span><span>${tx.students?.class || "-"}</span></div>
+            <div class="info-row"><span>NIK:</span><span>${tx.students?.nik || "-"}</span></div>
+          </div>
+          <div class="divider"></div>
+          <div class="info">
+            <div class="info-row"><span>Tipe:</span><span>${typeLabel}</span></div>
+          </div>
+          <div class="total-section">
+            <div class="total-row"><span>Saldo Sebelum:</span><span>${formatCurrency(tx.balance_before)}</span></div>
+            <div class="total-row grand"><span>${isDebit ? "Penggunaan:" : "Masuk:"}</span><span>${isDebit ? "-" : "+"}${formatCurrency(tx.amount)}</span></div>
+            <div class="total-row grand"><span>Saldo Sesudah:</span><span>${formatCurrency(tx.balance_after)}</span></div>
+          </div>
+          ${tx.notes ? `<div class="notes">Catatan: ${tx.notes}</div>` : ""}
+          <div class="footer">
+            <p>Terima kasih!</p>
+          </div>
+        </div>
+        <script>window.onload = function() { window.print(); window.onafterprint = function() { window.close(); }; };</script>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
   };
 
   return (
@@ -910,6 +989,11 @@ export function CashierWadiahReport({
                   <p className="text-sm mt-1">{selectedTransaction.notes}</p>
                 </div>
               )}
+
+              <Button className="w-full mt-2" onClick={() => handlePrintWadiahReceipt(selectedTransaction)}>
+                <Printer className="h-4 w-4 mr-2" />
+                Cetak Kwitansi
+              </Button>
             </div>
           )}
         </DialogContent>

@@ -21,6 +21,7 @@ export interface StudentArrears {
   orders: ArrearsOrder[];
   totalAmount: number;
   orderCount: number;
+  wadiahBalance: number;
 }
 
 export function useArrearsData() {
@@ -64,6 +65,7 @@ export function useArrearsData() {
             orders: [],
             totalAmount: 0,
             orderCount: 0,
+            wadiahBalance: 0,
           });
         }
 
@@ -109,6 +111,20 @@ export function useArrearsData() {
               entry.parentPhone = parent.phone;
             }
           }
+        }
+      }
+
+      // Fetch wadiah balances for all students
+      const studentIds = Array.from(studentMap.keys());
+      if (studentIds.length > 0) {
+        const { data: balances } = await supabase
+          .from("student_wadiah_balance")
+          .select("student_id, balance")
+          .in("student_id", studentIds);
+
+        for (const b of balances || []) {
+          const entry = studentMap.get(b.student_id);
+          if (entry) entry.wadiahBalance = b.balance;
         }
       }
 

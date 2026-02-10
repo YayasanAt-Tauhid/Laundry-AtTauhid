@@ -55,6 +55,8 @@ export default function ArrearsMessaging() {
       "No HP": s.parentPhone || "-",
       "Jumlah Order": s.orderCount,
       "Total Tunggakan": s.totalAmount,
+      "Saldo Wadiah": s.wadiahBalance,
+      "Selisih": s.totalAmount - s.wadiahBalance,
     }));
 
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -151,6 +153,8 @@ export default function ArrearsMessaging() {
                     <TableHead>No HP</TableHead>
                     <TableHead className="text-right">Order</TableHead>
                     <TableHead className="text-right">Total</TableHead>
+                    <TableHead className="text-right">Saldo Wadiah</TableHead>
+                    <TableHead className="text-right">Selisih</TableHead>
                     <TableHead className="text-right">Aksi</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -165,6 +169,12 @@ export default function ArrearsMessaging() {
                       <TableCell className="text-right">{student.orderCount}</TableCell>
                       <TableCell className="text-right font-medium text-destructive">
                         {formatCurrency(student.totalAmount)}
+                      </TableCell>
+                      <TableCell className="text-right font-medium text-primary">
+                        {formatCurrency(student.wadiahBalance)}
+                      </TableCell>
+                      <TableCell className="text-right font-medium">
+                        {formatCurrency(student.totalAmount - student.wadiahBalance)}
                       </TableCell>
                       <TableCell className="text-right">
                         <Button size="sm" onClick={() => handleOpenComposer(student)}>
