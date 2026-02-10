@@ -5,7 +5,8 @@ import { useMidtransConfig } from "@/hooks/useMidtransConfig";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, CheckCircle, XCircle, CreditCard, ShieldCheck, School, RefreshCw } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
+import { Loader2, CheckCircle, XCircle, CreditCard, ShieldCheck, School, RefreshCw, Package } from "lucide-react";
 import { formatCurrency } from "@/utils/format";
 
 declare global {
@@ -33,6 +34,15 @@ interface MidtransResult {
   status_message: string;
 }
 
+interface OrderItem {
+  id: string;
+  category: string;
+  weight_kg: number | null;
+  item_count: number | null;
+  total_price: number;
+  laundry_date: string | null;
+}
+
 interface PaymentData {
   studentName: string;
   studentClass: string;
@@ -46,6 +56,46 @@ interface PaymentData {
   expired?: boolean;
   paid?: boolean;
   orderIds?: string[];
+  orderItems?: OrderItem[];
+}
+
+function OrderItemsList({ items }: { items?: OrderItem[] }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 text-sm font-medium">
+        <Package className="h-4 w-4 text-primary" />
+        <span>Rincian Tagihan</span>
+      </div>
+      <div className="bg-muted/50 rounded-lg divide-y">
+        {items.map((item, idx) => (
+          <div key={item.id} className="px-4 py-2.5 space-y-1">
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-medium">
+                {idx + 1}. {item.category}
+              </span>
+              <span className="text-sm font-semibold">
+                {formatCurrency(item.total_price)}
+              </span>
+            </div>
+            <div className="flex gap-3 text-xs text-muted-foreground">
+              {item.weight_kg && <span>{item.weight_kg} kg</span>}
+              {item.item_count && <span>{item.item_count} pcs</span>}
+              {item.laundry_date && (
+                <span>
+                  {new Date(item.laundry_date).toLocaleDateString("id-ID", {
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                  })}
+                </span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export default function PublicPayment() {
@@ -225,6 +275,7 @@ export default function PublicPayment() {
                   </span>
                 </div>
               </div>
+              <OrderItemsList items={paymentData.orderItems} />
             </CardContent>
           </Card>
 
@@ -278,6 +329,8 @@ export default function PublicPayment() {
                   </span>
                 </div>
               </div>
+
+              <OrderItemsList items={paymentData.orderItems} />
 
               {error && (
                 <p className="text-sm text-destructive text-center">{error}</p>
@@ -409,6 +462,9 @@ export default function PublicPayment() {
                 <span className="font-medium">{paymentData.orderCount} order</span>
               </div>
             </div>
+
+            {/* Order items breakdown */}
+            <OrderItemsList items={paymentData.orderItems} />
 
             {/* Total amount with admin fee */}
             <div className="border-t pt-4 space-y-2">
