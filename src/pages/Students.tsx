@@ -109,6 +109,7 @@ export default function Students() {
   const [canClaimStudent, setCanClaimStudent] = useState(false);
   const [claimDialogOpen, setClaimDialogOpen] = useState(false);
   const [claiming, setClaiming] = useState(false);
+  const [claimStudentCode, setClaimStudentCode] = useState("");
 
   // Duplicate detection states
   const [duplicateWarningOpen, setDuplicateWarningOpen] = useState(false);
@@ -148,53 +149,36 @@ export default function Students() {
       setNikChecking(true);
       console.log("[Claim Debug] Checking NIK:", nik.trim());
 
-      // Always use direct query for more reliable results
-      // This ensures claim feature works even if RPC function is not updated
+      // Use RPC check_nik_available (SECURITY DEFINER) to bypass RLS
+      // Direct query fails because parent can't SELECT students with parent_id IS NULL
       try {
-        const { data: existing, error: queryError } = await supabase
-          .from("students")
-          .select("id, name, class, student_code, is_active, parent_id")
-          .eq("nik", nik.trim())
-          .neq("id", excludeId || "00000000-0000-0000-0000-000000000000")
-          .maybeSingle();
+        const { data, error: rpcError } = await supabase.rpc("check_nik_available", {
+          p_nik: nik.trim(),
+          p_exclude_id: excludeId || null,
+        });
 
-        console.log(
-          "[Claim Debug] Query result:",
-          existing,
-          "Error:",
-          queryError,
-        );
+        console.log("[Claim Debug] RPC result:", data, "Error:", rpcError);
 
-        if (queryError) {
-          console.error("[Claim Debug] Query error:", queryError);
-          throw queryError;
+        if (rpcError) {
+          console.error("[Claim Debug] RPC error:", rpcError);
+          throw rpcError;
         }
 
-        if (existing) {
-          const canClaim = existing.parent_id === null;
+        const result = data as unknown as NikCheckResult;
+
+        if (!result.available) {
+          const canClaim = result.can_claim === true;
           console.log("[Claim Debug] Student found:", {
-            name: existing.name,
-            parent_id: existing.parent_id,
-            canClaim: canClaim,
+            existing: result.existing_student,
+            canClaim,
           });
 
           setNikAvailable(false);
           setCanClaimStudent(canClaim);
-          setExistingNikStudent({
-            id: existing.id,
-            name: existing.name,
-            class: existing.class,
-            student_code: existing.student_code || "",
-            is_active: existing.is_active,
-            parent_id: existing.parent_id,
-          });
-          setNikError(
-            canClaim
-              ? `NIK sudah terdaftar untuk ${existing.name} (${existing.class}). Anda dapat mengklaim siswa ini.`
-              : `NIK sudah digunakan oleh ${existing.name} (${existing.class})`,
-          );
+          setExistingNikStudent(result.existing_student || null);
+          setNikError(result.message);
         } else {
-          console.log("[Claim Debug] No existing student found, NIK available");
+          console.log("[Claim Debug] NIK available");
           setNikAvailable(true);
           setNikError(null);
           setCanClaimStudent(false);
@@ -308,6 +292,11 @@ export default function Students() {
 
     // Check if NIK is available
     if (nikAvailable === false) {
+      if (canClaimStudent && existingNikStudent) {
+        // NIK exists but student has no parent - proceed with claim
+        await handleClaimStudent();
+        return;
+      }
       toast({
         variant: "destructive",
         title: "NIK Tidak Tersedia",
@@ -412,16 +401,27 @@ export default function Students() {
     }
   };
 
-  // Handle selecting existing student from duplicates
-  const handleSelectExisting = (studentId: string) => {
+  // Handle selecting existing student from duplicates - set up for claim with verification
+  const handleSelectExisting = async (studentId: string) => {
+    const dup = potentialDuplicates.find((d) => d.id === studentId);
+    
     setDuplicateWarningOpen(false);
     setPotentialDuplicates([]);
-    toast({
-      title: "Info",
-      description:
-        "Anda memilih siswa yang sudah ada. Silakan edit data siswa tersebut jika diperlukan.",
+
+    if (!user || !dup) return;
+
+    // Set up the claim flow with student_code verification
+    setExistingNikStudent({
+      id: dup.id,
+      name: dup.name,
+      class: dup.class,
+      student_code: dup.student_code || "",
+      is_active: true,
+      parent_id: null,
     });
-    setDialogOpen(false);
+    setCanClaimStudent(true);
+    setClaimStudentCode("");
+    setClaimDialogOpen(true);
   };
 
   const handleEdit = (student: Student) => {
@@ -487,49 +487,46 @@ export default function Students() {
   const handleClaimStudent = async () => {
     if (!user || !existingNikStudent) return;
 
+    if (!claimStudentCode || claimStudentCode.trim() === "") {
+      toast({
+        variant: "destructive",
+        title: "Kode Siswa Wajib Diisi",
+        description: "Masukkan kode siswa untuk verifikasi. Hubungi admin jika tidak tahu.",
+      });
+      return;
+    }
+
     setClaiming(true);
     try {
-      // Try using RPC function first
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data, error } = await (supabase.rpc as any)("claim_student", {
         p_student_id: existingNikStudent.id,
         p_parent_id: user.id,
+        p_student_code: claimStudentCode.trim(),
       });
 
-      if (error) {
-        // Fallback to direct update if RPC not available
-        const { error: updateError } = await supabase
-          .from("students")
-          .update({ parent_id: user.id })
-          .eq("id", existingNikStudent.id)
-          .is("parent_id", null);
+      if (error) throw error;
 
-        if (updateError) throw updateError;
-
+      const result = data as { success: boolean; message: string };
+      if (result.success) {
         toast({
           title: "Berhasil",
           description: `Siswa ${existingNikStudent.name} berhasil diklaim dan ditambahkan ke daftar anak Anda.`,
         });
       } else {
-        const result = data as { success: boolean; message: string };
-        if (result.success) {
-          toast({
-            title: "Berhasil",
-            description: `Siswa ${existingNikStudent.name} berhasil diklaim dan ditambahkan ke daftar anak Anda.`,
-          });
-        } else {
-          toast({
-            variant: "destructive",
-            title: "Gagal",
-            description: result.message,
-          });
-          return;
-        }
+        toast({
+          variant: "destructive",
+          title: "Gagal",
+          description: result.message,
+        });
+        setClaiming(false);
+        return;
       }
 
       setClaimDialogOpen(false);
       setDialogOpen(false);
       setFormData({ name: "", class: "", nik: "" });
+      setClaimStudentCode("");
       setNikAvailable(null);
       setNikError(null);
       setExistingNikStudent(null);
@@ -586,19 +583,30 @@ export default function Students() {
               <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
                 <DialogTrigger asChild>
                   <Button onClick={openAddDialog}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Tambah Siswa
+                    {userRole === "parent" ? (
+                      <>
+                        <GraduationCap className="h-4 w-4 mr-2" />
+                        Klaim Siswa
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="h-4 w-4 mr-2" />
+                        Tambah Siswa
+                      </>
+                    )}
                   </Button>
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
                     <DialogTitle>
-                      {selectedStudent ? "Edit Siswa" : "Tambah Siswa Baru"}
+                      {selectedStudent ? "Edit Siswa" : userRole === "parent" ? "Klaim Siswa" : "Tambah Siswa Baru"}
                     </DialogTitle>
                     <DialogDescription>
                       {selectedStudent
                         ? "Perbarui informasi siswa"
-                        : "Masukkan data siswa yang akan didaftarkan"}
+                        : userRole === "parent"
+                          ? "Masukkan NIK siswa untuk mengklaim sebagai anak Anda"
+                          : "Masukkan data siswa yang akan didaftarkan"}
                     </DialogDescription>
                   </DialogHeader>
                   <form
@@ -689,14 +697,6 @@ export default function Students() {
                                   <span className="mx-1">•</span>
                                   <span>Kelas {existingNikStudent.class}</span>
                                 </p>
-                                {existingNikStudent.student_code && (
-                                  <Badge
-                                    variant="outline"
-                                    className="mt-1 text-xs font-mono bg-white dark:bg-amber-900"
-                                  >
-                                    {existingNikStudent.student_code}
-                                  </Badge>
-                                )}
                                 <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
                                   Siswa ini sudah terdaftar oleh admin tetapi
                                   belum terhubung dengan akun orang tua.
@@ -717,34 +717,39 @@ export default function Students() {
                           </div>
                         )}
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="name">
-                        Nama Siswa <span className="text-destructive">*</span>
-                      </Label>
-                      <Input
-                        id="name"
-                        value={formData.name}
-                        onChange={(e) =>
-                          setFormData({ ...formData, name: e.target.value })
-                        }
-                        placeholder="Nama lengkap siswa"
-                        required
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="class">
-                        Kelas <span className="text-destructive">*</span>
-                      </Label>
-                      <Input
-                        id="class"
-                        value={formData.class}
-                        onChange={(e) =>
-                          setFormData({ ...formData, class: e.target.value })
-                        }
-                        placeholder="Contoh: 7A, X IPA 1, 5B"
-                        required
-                      />
-                    </div>
+                    {/* Only show name/class fields for admin/staff or when editing */}
+                    {(userRole !== "parent" || selectedStudent) && (
+                      <>
+                        <div className="space-y-2">
+                          <Label htmlFor="name">
+                            Nama Siswa <span className="text-destructive">*</span>
+                          </Label>
+                          <Input
+                            id="name"
+                            value={formData.name}
+                            onChange={(e) =>
+                              setFormData({ ...formData, name: e.target.value })
+                            }
+                            placeholder="Nama lengkap siswa"
+                            required
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="class">
+                            Kelas <span className="text-destructive">*</span>
+                          </Label>
+                          <Input
+                            id="class"
+                            value={formData.class}
+                            onChange={(e) =>
+                              setFormData({ ...formData, class: e.target.value })
+                            }
+                            placeholder="Contoh: 7A, X IPA 1, 5B"
+                            required
+                          />
+                        </div>
+                      </>
+                    )}
                     <div className="flex gap-3 justify-end">
                       <Button
                         type="button"
@@ -753,20 +758,23 @@ export default function Students() {
                       >
                         Batal
                       </Button>
-                      <Button
-                        type="submit"
-                        disabled={
-                          saving ||
-                          nikChecking ||
-                          (nikAvailable === false && !canClaimStudent)
-                        }
-                        className={canClaimStudent ? "hidden" : ""}
-                      >
-                        {saving && (
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        )}
-                        {selectedStudent ? "Simpan Perubahan" : "Tambah Siswa"}
-                      </Button>
+                      {/* Hide submit button for parent in add mode (they use claim) */}
+                      {(userRole !== "parent" || selectedStudent) && (
+                        <Button
+                          type="submit"
+                          disabled={
+                            saving ||
+                            nikChecking ||
+                            (nikAvailable === false && !canClaimStudent)
+                          }
+                          className={canClaimStudent ? "hidden" : ""}
+                        >
+                          {saving && (
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          )}
+                          {selectedStudent ? "Simpan Perubahan" : "Tambah Siswa"}
+                        </Button>
+                      )}
                     </div>
                   </form>
                 </DialogContent>
@@ -788,12 +796,14 @@ export default function Students() {
                 Belum ada siswa terdaftar
               </h3>
               <p className="text-muted-foreground text-center mb-4">
-                Tambahkan data siswa untuk mulai menggunakan layanan laundry
+                {userRole === "parent"
+                  ? "Klaim siswa Anda dengan memasukkan NIK yang sudah didaftarkan oleh admin"
+                  : "Tambahkan data siswa untuk mulai menggunakan layanan laundry"}
               </p>
               {userRole === "parent" && (
                 <Button onClick={openAddDialog}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Tambah Siswa Pertama
+                  <GraduationCap className="h-4 w-4 mr-2" />
+                  Klaim Siswa
                 </Button>
               )}
             </CardContent>
@@ -825,14 +835,6 @@ export default function Students() {
                           onClick={() => handleEdit(student)}
                         >
                           <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => openDeleteDialog(student)}
-                          className="text-destructive hover:text-destructive"
-                        >
-                          <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
                     )}
@@ -950,7 +952,10 @@ export default function Students() {
         />
 
         {/* Claim Student Confirmation Dialog */}
-        <AlertDialog open={claimDialogOpen} onOpenChange={setClaimDialogOpen}>
+        <AlertDialog open={claimDialogOpen} onOpenChange={(open) => {
+          setClaimDialogOpen(open);
+          if (!open) setClaimStudentCode("");
+        }}>
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle className="flex items-center gap-2">
@@ -969,16 +974,23 @@ export default function Students() {
                       <p className="text-sm text-muted-foreground">
                         NIK: {formData.nik}
                       </p>
-                      {existingNikStudent.student_code && (
-                        <Badge
-                          variant="outline"
-                          className="mt-1 text-xs font-mono"
-                        >
-                          {existingNikStudent.student_code}
-                        </Badge>
-                      )}
                     </div>
                   )}
+                  <div className="space-y-2">
+                    <Label htmlFor="claim-student-code" className="text-foreground">
+                      Kode Siswa <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="claim-student-code"
+                      value={claimStudentCode}
+                      onChange={(e) => setClaimStudentCode(e.target.value)}
+                      placeholder="Masukkan kode siswa untuk verifikasi"
+                      className="font-mono"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Hubungi admin sekolah untuk mendapatkan kode siswa jika Anda belum memilikinya.
+                    </p>
+                  </div>
                   <p className="text-sm">
                     Setelah diklaim, siswa ini akan muncul di daftar anak Anda
                     dan Anda dapat melihat tagihan serta riwayat transaksinya.
@@ -990,7 +1002,7 @@ export default function Students() {
               <AlertDialogCancel disabled={claiming}>Batal</AlertDialogCancel>
               <AlertDialogAction
                 onClick={handleClaimStudent}
-                disabled={claiming}
+                disabled={claiming || !claimStudentCode.trim()}
                 className="bg-primary"
               >
                 {claiming && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
