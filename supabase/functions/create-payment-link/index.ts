@@ -3,6 +3,27 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const APP_IDENTIFIER = "LAUNDRY-ATTAUHID";
 
+const PAYMENT_CONFIG = {
+  QRIS_MAX_AMOUNT: 628000,
+  QRIS_FEE_PERCENTAGE: 0.7,
+  VA_FEE_FLAT: 4400,
+} as const;
+
+function calculatePaymentMethod(baseAmount: number) {
+  if (baseAmount <= PAYMENT_CONFIG.QRIS_MAX_AMOUNT) {
+    return {
+      adminFee: Math.ceil((baseAmount * PAYMENT_CONFIG.QRIS_FEE_PERCENTAGE) / 100),
+      enabledPayments: ["other_qris"],
+      feeType: `${PAYMENT_CONFIG.QRIS_FEE_PERCENTAGE}%`,
+    };
+  }
+  return {
+    adminFee: PAYMENT_CONFIG.VA_FEE_FLAT,
+    enabledPayments: ["bank_transfer"],
+    feeType: `Rp ${PAYMENT_CONFIG.VA_FEE_FLAT.toLocaleString("id-ID")}`,
+  };
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -73,9 +94,29 @@ serve(async (req) => {
     const body: CreatePaymentLinkRequest = await req.json();
     const { studentName, orderIds, totalAmount, parentName, parentPhone } = body;
 
-    if (!orderIds || orderIds.length === 0 || !totalAmount) {
-      throw new Error("Missing required fields: orderIds, totalAmount");
+    if (!orderIds || orderIds.length === 0) {
+      throw new Error("Missing required fields: orderIds");
     }
+
+    // SECURITY: Fetch total from DB
+    const { data: orders, error: ordersError } = await supabase
+      .from("laundry_orders")
+      .select("id, total_price, status")
+      .in("id", orderIds);
+
+    if (ordersError || !orders || orders.length === 0) {
+      throw new Error("Orders tidak ditemukan");
+    }
+
+    for (const order of orders) {
+      if (!["DISETUJUI_MITRA", "MENUNGGU_PEMBAYARAN"].includes(order.status)) {
+        throw new Error(`Order ${order.id} tidak bisa dibayar (status: ${order.status})`);
+      }
+    }
+
+    const grossAmount = orders.reduce((sum: number, o: any) => sum + o.total_price, 0);
+    const { adminFee, enabledPayments, feeType } = calculatePaymentMethod(grossAmount);
+    const totalWithFee = grossAmount + adminFee;
 
     const isBulk = orderIds.length > 1;
     const midtransOrderId = isBulk 
@@ -88,20 +129,27 @@ serve(async (req) => {
     const transactionData: Record<string, any> = {
       transaction_details: {
         order_id: midtransOrderId,
-        gross_amount: totalAmount,
+        gross_amount: totalWithFee,
       },
       item_details: [
         {
           id: isBulk ? "BULK_ARREARS" : orderIds[0],
-          price: totalAmount,
+          price: grossAmount,
           quantity: 1,
           name: itemName,
         },
+        ...(adminFee > 0 ? [{
+          id: "ADMIN_FEE",
+          price: adminFee,
+          quantity: 1,
+          name: `Biaya Admin (${feeType})`,
+        }] : []),
       ],
       customer_details: {
         first_name: parentName || "Orang Tua",
         phone: parentPhone || "",
       },
+      enabled_payments: enabledPayments,
       custom_field1: APP_IDENTIFIER,
       custom_field2: isBulk ? `ARREARS_BULK:${orderIds.length}` : "ARREARS_SINGLE",
       custom_field3: `STUDENT:${studentName}`,

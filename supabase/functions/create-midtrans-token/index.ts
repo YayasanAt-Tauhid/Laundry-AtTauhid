@@ -1,92 +1,128 @@
 // Midtrans Token Creator for Laundry At-Tauhid
 // Creates Snap tokens for single and bulk payments
 //
+// SECURITY: grossAmount is fetched from database, NOT from frontend
+// SECURITY: Auth required - validates user via getClaims
+// SECURITY: Parent role checked via user_roles table (NOT profiles)
+//
 // CUSTOM FIELDS (for multi-app Midtrans account):
 // - custom_field1: App identifier (LAUNDRY-ATTAUHID)
 // - custom_field2: Payment type (SINGLE / BULK:n)
 // - custom_field3: Laundry category
 
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// App identifier for multi-app Midtrans isolation
 const APP_IDENTIFIER = "LAUNDRY-ATTAUHID";
+
+const PAYMENT_CONFIG = {
+  QRIS_MAX_AMOUNT: 628000,
+  QRIS_FEE_PERCENTAGE: 0.7,
+  VA_FEE_FLAT: 4400,
+} as const;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
+
+/** Calculate admin fee and payment method based on amount */
+function calculatePaymentMethod(baseAmount: number) {
+  if (baseAmount <= PAYMENT_CONFIG.QRIS_MAX_AMOUNT) {
+    const adminFee = Math.ceil((baseAmount * PAYMENT_CONFIG.QRIS_FEE_PERCENTAGE) / 100);
+    return {
+      adminFee,
+      paymentMethod: "qris",
+      enabledPayments: ["other_qris"],
+      feeType: `${PAYMENT_CONFIG.QRIS_FEE_PERCENTAGE}%`,
+    };
+  }
+  return {
+    adminFee: PAYMENT_CONFIG.VA_FEE_FLAT,
+    paymentMethod: "bank_transfer",
+    enabledPayments: ["bank_transfer"],
+    feeType: `Rp ${PAYMENT_CONFIG.VA_FEE_FLAT.toLocaleString("id-ID")}`,
+  };
+}
 
 interface PaymentRequest {
   orderId: string;
-  orderIds?: string[]; // For bulk payments
-  grossAmount: number;
+  orderIds?: string[];
   studentName: string;
   category: string;
   customerEmail?: string;
   customerPhone?: string;
   customerName?: string;
-  adminFee?: number;
-  enabledPayments?: string[];
-  isBulk?: boolean; // Flag for bulk payment
+  isBulk?: boolean;
 }
 
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   try {
-    // Initialize Supabase client for user validation
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Get authorization header to identify user
+    // =====================================================
+    // SECURITY: Authenticate user via getClaims
+    // =====================================================
     const authHeader = req.headers.get("Authorization");
-    if (authHeader) {
-      const token = authHeader.replace("Bearer ", "");
-      const {
-        data: { user },
-      } = await supabase.auth.getUser(token);
+    if (!authHeader?.startsWith("Bearer ")) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
-      if (user) {
-        // Check user's role
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("role")
-          .eq("id", user.id)
-          .single();
+    const token = authHeader.replace("Bearer ", "");
+    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(token);
+    if (claimsError || !claimsData?.claims) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
-        // If user is parent, check if online payment is enabled
-        if (profile?.role === "parent") {
-          const { data: settings } = await supabase
-            .from("rounding_settings")
-            .select("parent_online_payment_enabled")
-            .single();
+    const userId = claimsData.claims.sub;
 
-          if (settings && settings.parent_online_payment_enabled === false) {
-            return new Response(
-              JSON.stringify({
-                error:
-                  "Pembayaran online untuk parent sedang dinonaktifkan. Silakan bayar melalui kasir.",
-                code: "ONLINE_PAYMENT_DISABLED",
-              }),
-              {
-                headers: { ...corsHeaders, "Content-Type": "application/json" },
-                status: 403,
-              },
-            );
-          }
-        }
+    // =====================================================
+    // SECURITY: Check role via user_roles table (NOT profiles)
+    // =====================================================
+    const { data: roleData } = await supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", userId)
+      .single();
+
+    const userRole = roleData?.role;
+
+    // Check parent online payment setting
+    if (userRole === "parent") {
+      const { data: settings } = await supabase
+        .from("rounding_settings")
+        .select("parent_online_payment_enabled")
+        .single();
+
+      if (settings && settings.parent_online_payment_enabled === false) {
+        return new Response(
+          JSON.stringify({
+            error: "Pembayaran online untuk parent sedang dinonaktifkan. Silakan bayar melalui kasir.",
+            code: "ONLINE_PAYMENT_DISABLED",
+          }),
+          {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 403,
+          },
+        );
       }
     }
 
     const MIDTRANS_SERVER_KEY = Deno.env.get("MIDTRANS_SERVER_KEY");
-    const MIDTRANS_IS_PRODUCTION =
-      Deno.env.get("MIDTRANS_IS_PRODUCTION") === "true";
+    const MIDTRANS_IS_PRODUCTION = Deno.env.get("MIDTRANS_IS_PRODUCTION") === "true";
 
     if (!MIDTRANS_SERVER_KEY) {
       throw new Error("Midtrans Server Key not configured");
@@ -95,35 +131,89 @@ serve(async (req) => {
     const {
       orderId,
       orderIds,
-      grossAmount,
       studentName,
       category,
       customerEmail,
       customerPhone,
       customerName,
-      adminFee = 0,
-      enabledPayments,
       isBulk = false,
     }: PaymentRequest = await req.json();
 
-    // Generate unique order ID for Midtrans with APP_IDENTIFIER
-    // Format: {APP_IDENTIFIER}-{TYPE}-{timestamp}
+    // Determine which order IDs to process
+    const orderIdsToUpdate = isBulk && orderIds ? orderIds : [orderId];
+
+    // =====================================================
+    // SECURITY: Fetch total_price from DATABASE, not frontend
+    // =====================================================
+    const { data: orders, error: ordersError } = await supabase
+      .from("laundry_orders")
+      .select("id, total_price, category, status, student_id")
+      .in("id", orderIdsToUpdate);
+
+    if (ordersError || !orders || orders.length === 0) {
+      throw new Error("Order tidak ditemukan di database");
+    }
+
+    // Validate all orders exist
+    if (orders.length !== orderIdsToUpdate.length) {
+      const foundIds = orders.map((o: any) => o.id);
+      const missingIds = orderIdsToUpdate.filter((id) => !foundIds.includes(id));
+      throw new Error(`Order tidak ditemukan: ${missingIds.join(", ")}`);
+    }
+
+    // =====================================================
+    // SECURITY: Parents can only pay for their own children's orders
+    // =====================================================
+    if (userRole === "parent") {
+      const studentIds = [...new Set(orders.map((o: any) => o.student_id))];
+      const { data: students } = await supabase
+        .from("students")
+        .select("id, parent_id")
+        .in("id", studentIds);
+
+      if (!students || students.some((s: any) => s.parent_id !== userId)) {
+        return new Response(
+          JSON.stringify({ error: "Anda tidak memiliki akses ke order ini" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
+    // Validate order status - only allow payment for approved orders
+    for (const order of orders) {
+      if (!["DISETUJUI_MITRA", "MENUNGGU_PEMBAYARAN"].includes(order.status)) {
+        throw new Error(
+          `Order ${order.id} tidak dalam status yang bisa dibayar (status: ${order.status})`
+        );
+      }
+    }
+
+    // Calculate grossAmount from database values
+    const grossAmount = orders.reduce(
+      (sum: number, order: any) => sum + order.total_price,
+      0
+    );
+
+    console.log(
+      `SECURITY: grossAmount calculated from DB = ${grossAmount} (${orders.length} orders), user=${userId}, role=${userRole}`
+    );
+
+    // =====================================================
+    // AUTO PAYMENT METHOD: QRIS <= 628k, VA > 628k
+    // =====================================================
+    const { adminFee, paymentMethod, enabledPayments, feeType } = calculatePaymentMethod(grossAmount);
+
+    // Generate unique order ID for Midtrans
     const midtransOrderId = isBulk
       ? `${APP_IDENTIFIER}-BULK-${Date.now()}`
       : `${APP_IDENTIFIER}-SINGLE-${orderId.substring(0, 8)}-${Date.now()}`;
 
-    // Determine which order IDs to update
-    const orderIdsToUpdate = isBulk && orderIds ? orderIds : [orderId];
-
     // Calculate total with admin fee
     const totalWithFee = grossAmount + adminFee;
 
-    // Prepare item details - only add admin fee if > 0
+    // Prepare item details
     const itemName = isBulk
-      ? `Bulk Payment (${orderIdsToUpdate.length} orders) - ${studentName}`.substring(
-          0,
-          50,
-        )
+      ? `Bulk Payment (${orderIdsToUpdate.length} orders) - ${studentName}`.substring(0, 50)
       : `Laundry ${category} - ${studentName}`.substring(0, 50);
 
     const itemDetails: any[] = [
@@ -140,11 +230,11 @@ serve(async (req) => {
         id: "ADMIN_FEE",
         price: adminFee,
         quantity: 1,
-        name: "Biaya Admin",
+        name: `Biaya Admin (${feeType})`,
       });
     }
 
-    // Prepare Midtrans transaction data with custom fields for app identification
+    // Prepare Midtrans transaction data
     const transactionData: Record<string, any> = {
       transaction_details: {
         order_id: midtransOrderId,
@@ -156,16 +246,11 @@ serve(async (req) => {
         email: customerEmail || "customer@example.com",
         phone: customerPhone || "",
       },
-      // Custom fields for LAUNDRY app identification (visible in Midtrans dashboard)
+      enabled_payments: enabledPayments,
       custom_field1: APP_IDENTIFIER,
       custom_field2: isBulk ? `BULK:${orderIdsToUpdate.length}` : "SINGLE",
       custom_field3: category,
     };
-
-    // Add enabled payment methods if provided
-    if (enabledPayments && enabledPayments.length > 0) {
-      transactionData.enabled_payments = enabledPayments;
-    }
 
     // Call Midtrans Snap API
     const midtransUrl = MIDTRANS_IS_PRODUCTION
@@ -193,23 +278,13 @@ serve(async (req) => {
       );
     }
 
-    // Update the order with midtrans info and admin fee
-    // (supabase client already initialized above)
-
-    // Calculate admin fee per order for bulk payments
+    // Update orders with midtrans info
     const adminFeePerOrder = isBulk
       ? Math.ceil(adminFee / orderIdsToUpdate.length)
       : adminFee;
 
-    console.log(
-      `Updating ${orderIdsToUpdate.length} order(s) with midtrans_order_id: ${midtransOrderId}`,
-    );
-    console.log("Order IDs to update:", orderIdsToUpdate);
-
-    // Update all orders
-    let updateSuccess = true;
     for (const oid of orderIdsToUpdate) {
-      const { data: updateData, error: updateError } = await supabase
+      const { error: updateError } = await supabase
         .from("laundry_orders")
         .update({
           midtrans_order_id: midtransOrderId,
@@ -217,40 +292,11 @@ serve(async (req) => {
           status: "MENUNGGU_PEMBAYARAN",
           admin_fee: adminFeePerOrder,
         })
-        .eq("id", oid)
-        .select("id, midtrans_order_id");
+        .eq("id", oid);
 
       if (updateError) {
         console.error(`Failed to update order ${oid}:`, updateError);
-        updateSuccess = false;
-      } else {
-        console.log(`Successfully updated order ${oid}:`, updateData);
       }
-    }
-
-    if (!updateSuccess) {
-      console.warn("Some orders failed to update. Webhook will handle retry.");
-    }
-
-    // Verify updates for the first order (spot check)
-    const { data: verifyData } = await supabase
-      .from("laundry_orders")
-      .select("id, midtrans_order_id, status")
-      .eq("id", orderIdsToUpdate[0])
-      .single();
-
-    if (verifyData) {
-      console.log("Verified first order state:", verifyData);
-      if (verifyData.midtrans_order_id !== midtransOrderId) {
-        console.warn("WARNING: midtrans_order_id mismatch after update!");
-        console.warn("Expected:", midtransOrderId);
-        console.warn("Got:", verifyData.midtrans_order_id);
-      }
-    } else {
-      console.warn(
-        "Could not verify order update - order not found:",
-        orderIdsToUpdate[0],
-      );
     }
 
     return new Response(
@@ -258,6 +304,9 @@ serve(async (req) => {
         token: midtransResult.token,
         redirect_url: midtransResult.redirect_url,
         order_id: midtransOrderId,
+        payment_method: paymentMethod,
+        admin_fee: adminFee,
+        fee_type: feeType,
       }),
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },

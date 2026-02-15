@@ -1,10 +1,10 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
-import LandingPage from "./LandingPage";
+import { AuthForm } from "@/components/auth/AuthForm";
 import { Loader2 } from "lucide-react";
 
-const Index = () => {
+const Login = () => {
   const { user, userRole, loading } = useAuth();
   const navigate = useNavigate();
 
@@ -33,7 +33,7 @@ const Index = () => {
     return null;
   }
 
-  return <LandingPage />;
+  return <AuthForm />;
 };
 
-export default Index;
+export default Login;
