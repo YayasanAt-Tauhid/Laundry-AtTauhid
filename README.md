@@ -1,4 +1,4 @@
-## At-Tauhid Laundry Oke
+## At-Tauhid Laundry
 
 🧺 **Sistem Manajemen Laundry Sekolah**
 
