@@ -1,30 +1,41 @@
+import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
-import Index from "./pages/Index";
-import Login from "./pages/Login";
-import Dashboard from "./pages/Dashboard";
-import Students from "./pages/Students";
-import Orders from "./pages/Orders";
-import NewOrder from "./pages/NewOrder";
-import BulkOrderEntry from "./pages/BulkOrderEntry";
-import Bills from "./pages/Bills";
-import Partners from "./pages/Partners";
-import Reports from "./pages/Reports";
-import CashierReports from "./pages/CashierReports";
-import CashierPOS from "./pages/CashierPOS";
-import Settings from "./pages/Settings";
-import DataMigration from "./pages/DataMigration";
-import UserManagement from "./pages/UserManagement";
-import StaffBills from "./pages/StaffBills";
-import WadiahBalance from "./pages/WadiahBalance";
-import ArrearsMessaging from "./pages/ArrearsMessaging";
-import PublicPayment from "./pages/PublicPayment";
-import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
+import { UpdatePrompt } from "@/components/pwa/UpdatePrompt";
+
+// Lazy-loaded pages for code splitting
+const Index = lazy(() => import("./pages/Index"));
+const Login = lazy(() => import("./pages/Login"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Students = lazy(() => import("./pages/Students"));
+const Orders = lazy(() => import("./pages/Orders"));
+const NewOrder = lazy(() => import("./pages/NewOrder"));
+const BulkOrderEntry = lazy(() => import("./pages/BulkOrderEntry"));
+const Bills = lazy(() => import("./pages/Bills"));
+const Partners = lazy(() => import("./pages/Partners"));
+const Reports = lazy(() => import("./pages/Reports"));
+const CashierReports = lazy(() => import("./pages/CashierReports"));
+const CashierPOS = lazy(() => import("./pages/CashierPOS"));
+const Settings = lazy(() => import("./pages/Settings"));
+const DataMigration = lazy(() => import("./pages/DataMigration"));
+const UserManagement = lazy(() => import("./pages/UserManagement"));
+const StaffBills = lazy(() => import("./pages/StaffBills"));
+const WadiahBalance = lazy(() => import("./pages/WadiahBalance"));
+const ArrearsMessaging = lazy(() => import("./pages/ArrearsMessaging"));
+const PublicPayment = lazy(() => import("./pages/PublicPayment"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+const InstallApp = lazy(() => import("./pages/InstallApp"));
+
+const PageLoader = () => (
+  <div className="min-h-screen flex items-center justify-center bg-background">
+    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+  </div>
+);
 
 const queryClient = new QueryClient();
 
@@ -60,6 +71,7 @@ function ProtectedRoute({
 
 function AppRoutes() {
   return (
+    <Suspense fallback={<PageLoader />}>
     <Routes>
       <Route path="/" element={<Index />} />
       <Route path="/login" element={<Login />} />
@@ -195,8 +207,10 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      <Route path="/install" element={<InstallApp />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
+    </Suspense>
   );
 }
 
@@ -207,6 +221,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <AuthProvider>
+          <UpdatePrompt />
           <AppRoutes />
         </AuthProvider>
       </BrowserRouter>
