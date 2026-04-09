@@ -194,60 +194,58 @@ export function PrintBillingFormDialog({
       year: "numeric",
     });
 
-    // Generate category headers
+    // Generate category headers - narrow columns with wrapping header text
     const categoryHeaders = categoryKeys
       .map((key) => {
         const cat = LAUNDRY_CATEGORIES[key];
-        return `<th style="width: 45px; font-size: 7px; padding: 3px;">${cat.label}<br/><span style="font-weight: normal; font-size: 6px;">(${cat.unit})</span></th>`;
+        return `<th style="width: 28px; font-size: 6.5px; padding: 2px 1px; word-break: break-word; white-space: normal; text-align: center; line-height: 1.2;">${cat.label}<br/><span style="font-weight: normal; font-size: 6px;">(${cat.unit})</span></th>`;
       })
       .join("");
 
     // Generate empty cells for each category
     const emptyCategoryCells = categoryKeys
-      .map(() => `<td style="padding: 3px;"></td>`)
+      .map(() => `<td style="padding: 2px 1px;"></td>`)
       .join("");
 
-    // Generate rows for each class
-    let tableContent = "";
-    const sortedClasses = Object.keys(studentsByClass).sort();
-
-    sortedClasses.forEach((className) => {
-      const classStudents = studentsByClass[className];
-
-      tableContent += `
-        <div class="class-section">
-          <h2 class="class-title">Kelas: ${className} (${classStudents.length} siswa)</h2>
-          <table>
-            <thead>
-              <tr>
-                <th style="width: 25px;">No</th>
-                <th style="width: 60px;">NIK</th>
-                <th style="width: 120px;">Nama Siswa</th>
-                <th style="width: 65px;">Tanggal</th>
-                ${categoryHeaders}
-                <th style="width: 70px;">Catatan</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${classStudents
-                .map(
-                  (student, index) => `
-                <tr>
-                  <td class="center">${index + 1}</td>
-                  <td class="center" style="font-size: 8px;">${student.nik}</td>
-                  <td style="font-size: 8px;">${student.name}</td>
-                  <td></td>
-                  ${emptyCategoryCells}
-                  <td></td>
-                </tr>
-              `,
-                )
-                .join("")}
-            </tbody>
-          </table>
-        </div>
-      `;
+    // Generate single unified table for all students (sorted by class then name)
+    const allStudentsSorted = filteredStudents.slice().sort((a, b) => {
+      if (a.class < b.class) return -1;
+      if (a.class > b.class) return 1;
+      return a.name.localeCompare(b.name);
     });
+
+    let tableContent = `
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 20px; font-size: 7px; padding: 2px;">No</th>
+            <th style="width: 50px; font-size: 7px; padding: 2px;">NIK</th>
+            <th style="width: 110px; font-size: 7px; padding: 2px;">Nama Siswa</th>
+            <th style="width: 45px; font-size: 7px; padding: 2px;">Kelas</th>
+            <th style="width: 50px; font-size: 7px; padding: 2px;">Tanggal</th>
+            ${categoryHeaders}
+            <th style="width: 55px; font-size: 7px; padding: 2px;">Catatan</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${allStudentsSorted
+            .map(
+              (student, index) => `
+            <tr>
+              <td class="center" style="font-size: 7px; padding: 2px;">${index + 1}</td>
+              <td class="center" style="font-size: 7px; padding: 2px;">${student.nik}</td>
+              <td style="font-size: 7px; padding: 2px;">${student.name}</td>
+              <td class="center" style="font-size: 7px; padding: 2px;">${student.class}</td>
+              <td></td>
+              ${emptyCategoryCells}
+              <td></td>
+            </tr>
+          `,
+            )
+            .join("")}
+        </tbody>
+      </table>
+    `;
 
     // Generate category legend
     const categoryLegend = categoryKeys
@@ -264,7 +262,7 @@ export function PrintBillingFormDialog({
         <title>Form Input Tagihan Laundry</title>
         <style>
           @page {
-            size: A4 landscape;
+            size: A4 portrait;
             margin: 8mm;
           }
           * {
@@ -332,6 +330,8 @@ export function PrintBillingFormDialog({
             background: #e0e0e0;
             font-weight: bold;
             text-align: center;
+            word-break: break-word;
+            white-space: normal;
           }
           td.center {
             text-align: center;
@@ -384,7 +384,10 @@ export function PrintBillingFormDialog({
             font-size: 9px;
           }
           @media print {
-            .class-section {
+            table {
+              page-break-inside: auto;
+            }
+            tr {
               page-break-inside: avoid;
             }
           }
