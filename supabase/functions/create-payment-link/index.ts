@@ -70,15 +70,16 @@ serve(async (req) => {
 
     const userId = claimsData.claims.sub;
 
-    // Check admin role
+    // Check admin or staff role
     const { data: roleData } = await supabase
       .from("user_roles")
       .select("role")
       .eq("user_id", userId)
-      .single();
+      .in("role", ["admin", "staff"])
+      .maybeSingle();
 
-    if (roleData?.role !== "admin") {
-      return new Response(JSON.stringify({ error: "Forbidden: Admin only" }), {
+    if (!roleData) {
+      return new Response(JSON.stringify({ error: "Forbidden: Admin or Staff only" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

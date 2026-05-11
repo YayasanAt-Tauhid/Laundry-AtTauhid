@@ -109,7 +109,7 @@ const navItems: NavItem[] = [
     label: "Pesan Tunggakan",
     href: "/arrears-messaging",
     icon: <MessageSquareText className="h-5 w-5" />,
-    roles: ["admin"],
+    roles: ["admin", "staff"],
   },
   {
     label: "Migrasi Data",
