@@ -202,7 +202,7 @@ function AppRoutes() {
       <Route
         path="/arrears-messaging"
         element={
-          <ProtectedRoute allowedRoles={["admin"]}>
+          <ProtectedRoute allowedRoles={["admin", "staff"]}>
             <ArrearsMessaging />
           </ProtectedRoute>
         }
