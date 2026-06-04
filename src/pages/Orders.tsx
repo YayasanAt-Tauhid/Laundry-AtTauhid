@@ -33,6 +33,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Link } from "react-router-dom";
 import { format } from "date-fns";
 import { id as idLocale } from "date-fns/locale";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Plus,
   Search,
@@ -122,6 +123,7 @@ export default function Orders() {
   const [processing, setProcessing] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
+  const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
 
   // Filter states
   const [filters, setFilters] = useState<Filters>({
@@ -159,9 +161,10 @@ export default function Orders() {
     fetchOrders();
   }, [user, userRole, currentPage, filters]);
 
-  // Reset to first page when search term or filters change
+  // Reset to first page and clear selection when search term or filters change
   useEffect(() => {
     setCurrentPage(0);
+    setSelectedOrders(new Set());
   }, [searchTerm, filters]);
 
   // Fetch available classes
@@ -343,6 +346,49 @@ export default function Orders() {
     setDetailDialogOpen(true);
   };
 
+  const toggleOrderSelection = (id: string) => {
+    setSelectedOrders((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleBulkApprove = async () => {
+    if (selectedOrders.size === 0) return;
+    setProcessing(true);
+    try {
+      const { error } = await supabase
+        .from("laundry_orders")
+        .update({
+          status: "DISETUJUI_MITRA",
+          approved_at: new Date().toISOString(),
+          approved_by: user?.id,
+        })
+        .in("id", Array.from(selectedOrders));
+
+      if (error) throw error;
+
+      toast({
+        title: "Berhasil",
+        description: `${selectedOrders.size} order telah disetujui`,
+      });
+
+      setSelectedOrders(new Set());
+      fetchOrders();
+    } catch (error) {
+      console.error("Error bulk approving orders:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Gagal menyetujui order",
+      });
+    } finally {
+      setProcessing(false);
+    }
+  };
+
   const resetFilters = () => {
     setFilters({
       status: "all",
@@ -387,6 +433,22 @@ export default function Orders() {
       order.laundry_partners?.name?.toLowerCase().includes(searchLower)
     );
   });
+
+  const pendingOrdersInView = filteredOrders.filter(
+    (o) => o.status === "MENUNGGU_APPROVAL_MITRA",
+  );
+
+  const allPendingSelected =
+    pendingOrdersInView.length > 0 &&
+    pendingOrdersInView.every((o) => selectedOrders.has(o.id));
+
+  const toggleSelectAll = () => {
+    if (allPendingSelected) {
+      setSelectedOrders(new Set());
+    } else {
+      setSelectedOrders(new Set(pendingOrdersInView.map((o) => o.id)));
+    }
+  };
 
   // Get status options based on role
   const statusOptions =
@@ -822,6 +884,36 @@ export default function Orders() {
           </Card>
         )}
 
+        {/* Bulk Action Bar - hanya untuk partner saat ada order terpilih */}
+        {userRole === "partner" && selectedOrders.size > 0 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-4 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="h-5 w-5 text-emerald-600" />
+              <span className="font-medium text-emerald-800 dark:text-emerald-200">
+                {selectedOrders.size} order dipilih
+              </span>
+              <button
+                className="text-sm text-muted-foreground underline hover:no-underline ml-2"
+                onClick={() => setSelectedOrders(new Set())}
+              >
+                Batalkan pilihan
+              </button>
+            </div>
+            <Button
+              className="bg-emerald-600 hover:bg-emerald-700 text-white w-full sm:w-auto"
+              onClick={handleBulkApprove}
+              disabled={processing}
+            >
+              {processing ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <CheckCircle className="h-4 w-4 mr-2" />
+              )}
+              Setujui Semua ({selectedOrders.size})
+            </Button>
+          </div>
+        )}
+
         {/* Orders - Responsive Layout */}
         <Card className="dashboard-card">
           <CardContent className="p-0">
@@ -851,10 +943,43 @@ export default function Orders() {
               <>
                 {/* Mobile Card View */}
                 <div className="block lg:hidden divide-y divide-border">
+                  {/* Select All bar untuk mobile - hanya partner & ada pending */}
+                  {userRole === "partner" && pendingOrdersInView.length > 0 && (
+                    <div className="flex items-center gap-3 p-4 bg-muted/30">
+                      <Checkbox
+                        id="select-all-mobile"
+                        checked={allPendingSelected}
+                        onCheckedChange={toggleSelectAll}
+                      />
+                      <label
+                        htmlFor="select-all-mobile"
+                        className="text-sm font-medium cursor-pointer"
+                      >
+                        Pilih semua yang menunggu approval ({pendingOrdersInView.length})
+                      </label>
+                    </div>
+                  )}
                   {filteredOrders.map((order) => (
-                    <div key={order.id} className="p-4 space-y-3">
+                    <div
+                      key={order.id}
+                      className={`p-4 space-y-3 transition-colors ${
+                        selectedOrders.has(order.id)
+                          ? "bg-emerald-50 dark:bg-emerald-900/10 ring-1 ring-inset ring-emerald-200 dark:ring-emerald-800"
+                          : ""
+                      }`}
+                    >
                       {/* Header: Student Info & Status */}
                       <div className="flex items-start justify-between gap-3">
+                        {userRole === "partner" &&
+                          order.status === "MENUNGGU_APPROVAL_MITRA" && (
+                            <Checkbox
+                              className="mt-1 shrink-0"
+                              checked={selectedOrders.has(order.id)}
+                              onCheckedChange={() =>
+                                toggleOrderSelection(order.id)
+                              }
+                            />
+                          )}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
                             <span className="font-mono text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
@@ -942,6 +1067,16 @@ export default function Orders() {
                   <table className="w-full">
                     <thead className="bg-muted/30">
                       <tr>
+                        {userRole === "partner" &&
+                          pendingOrdersInView.length > 0 && (
+                            <th className="py-4 px-4 w-10">
+                              <Checkbox
+                                checked={allPendingSelected}
+                                onCheckedChange={toggleSelectAll}
+                                aria-label="Pilih semua"
+                              />
+                            </th>
+                          )}
                         <th className="text-left py-4 px-6 text-sm font-medium text-muted-foreground">
                           NIK / Siswa
                         </th>
@@ -975,8 +1110,25 @@ export default function Orders() {
                       {filteredOrders.map((order) => (
                         <tr
                           key={order.id}
-                          className="border-b border-border/50 hover:bg-muted/20 transition-colors"
+                          className={`border-b border-border/50 transition-colors ${
+                            selectedOrders.has(order.id)
+                              ? "bg-emerald-50 dark:bg-emerald-900/10"
+                              : "hover:bg-muted/20"
+                          }`}
                         >
+                          {userRole === "partner" &&
+                            pendingOrdersInView.length > 0 && (
+                              <td className="py-4 px-4">
+                                {order.status === "MENUNGGU_APPROVAL_MITRA" && (
+                                  <Checkbox
+                                    checked={selectedOrders.has(order.id)}
+                                    onCheckedChange={() =>
+                                      toggleOrderSelection(order.id)
+                                    }
+                                  />
+                                )}
+                              </td>
+                            )}
                           <td className="py-4 px-6">
                             <div className="flex items-center gap-2">
                               <span className="font-mono text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
