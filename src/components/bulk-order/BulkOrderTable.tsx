@@ -360,9 +360,7 @@ function BulkOrderRowComponent({
               disabled={(date) => {
                 const today = new Date();
                 today.setHours(23, 59, 59, 999);
-                const thirtyDaysAgo = new Date();
-                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-                return date > today || date < thirtyDaysAgo;
+                return date > today;
               }}
               initialFocus
               locale={id}
