@@ -117,12 +117,6 @@ const validateRow = (row: BulkOrderRow): RowValidationError[] => {
         message: "Tanggal tidak boleh di masa depan",
       });
     }
-
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    if (date < thirtyDaysAgo) {
-      errors.push({ field: "date", message: "Maks 30 hari lalu" });
-    }
   }
 
   if (!row.category) {
