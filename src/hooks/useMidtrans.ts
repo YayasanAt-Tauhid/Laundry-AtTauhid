@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useMidtransConfig, getMidtransEnvironment } from "@/hooks/useMidtransConfig";
@@ -69,6 +69,10 @@ export function useMidtrans() {
   const { toast } = useToast();
   const { isReady: isMidtransReady, isLoading: isMidtransLoading, error: midtransError } = useMidtransConfig();
   const [isProcessing, setIsProcessing] = useState(false);
+  // Guards against calling window.snap.pay() again while a popup is already
+  // open — Snap.js throws "Invalid state transition from PopupInView to
+  // PopupInView" if pay() is invoked twice before the first popup resolves.
+  const isPopupOpenRef = useRef(false);
 
   // Calculate estimated admin fee based on amount
   // QRIS (0.7%) for < 628,000, VA (Rp 4,400) for >= 628,000
@@ -208,11 +212,18 @@ export function useMidtrans() {
     onSuccess?: () => void,
     onPending?: () => void,
   ) => {
+    // Prevent a second snap.pay() call while a popup is already open
+    if (isPopupOpenRef.current) {
+      return;
+    }
+
     setIsProcessing(true);
 
     // Calculate admin fee
     const adminFee =
       params.adminFee ?? getEstimatedAdminFee(params.grossAmount);
+
+    let popupOpened = false;
 
     try {
       // Check if Midtrans Snap is loaded
@@ -249,9 +260,14 @@ export function useMidtrans() {
       }
 
       // Open Midtrans Snap payment popup
+      popupOpened = true;
+      isPopupOpenRef.current = true;
+
       window.snap.pay(snapToken, {
         onSuccess: async (result: MidtransResult) => {
           console.log("Payment success:", result);
+          isPopupOpenRef.current = false;
+          setIsProcessing(false);
 
           // Calculate actual admin fee based on payment method used
           const actualAdminFee = getActualAdminFee(
@@ -279,6 +295,8 @@ export function useMidtrans() {
         },
         onPending: (result: MidtransResult) => {
           console.log("Payment pending:", result);
+          isPopupOpenRef.current = false;
+          setIsProcessing(false);
 
           toast({
             title: "Pembayaran Tertunda",
@@ -289,6 +307,8 @@ export function useMidtrans() {
         },
         onError: (result: MidtransResult) => {
           console.error("Payment error:", result);
+          isPopupOpenRef.current = false;
+          setIsProcessing(false);
 
           toast({
             variant: "destructive",
@@ -300,6 +320,8 @@ export function useMidtrans() {
         },
         onClose: () => {
           console.log("Payment popup closed");
+          isPopupOpenRef.current = false;
+          setIsProcessing(false);
 
           toast({
             title: "Pembayaran Dibatalkan",
@@ -315,7 +337,11 @@ export function useMidtrans() {
         description: error.message || "Gagal memproses pembayaran",
       });
     } finally {
-      setIsProcessing(false);
+      // If the popup never opened (error before snap.pay), reset here.
+      // Otherwise the snap.pay callbacks own resetting isProcessing/isPopupOpenRef.
+      if (!popupOpened) {
+        setIsProcessing(false);
+      }
     }
   };
 
@@ -442,11 +468,18 @@ export function useMidtrans() {
     onSuccess?: () => void,
     onPending?: () => void,
   ) => {
+    // Prevent a second snap.pay() call while a popup is already open
+    if (isPopupOpenRef.current) {
+      return;
+    }
+
     setIsProcessing(true);
 
     // Calculate admin fee for bulk payment
     const adminFee =
       params.adminFee ?? getEstimatedAdminFee(params.grossAmount);
+
+    let popupOpened = false;
 
     try {
       if (!window.snap) {
@@ -481,9 +514,14 @@ export function useMidtrans() {
         throw new Error("Gagal membuat token pembayaran");
       }
 
+      popupOpened = true;
+      isPopupOpenRef.current = true;
+
       window.snap.pay(snapToken, {
         onSuccess: async (result: MidtransResult) => {
           console.log("Bulk payment success:", result);
+          isPopupOpenRef.current = false;
+          setIsProcessing(false);
 
           // Calculate actual admin fee based on payment method used
           const actualAdminFee = getActualAdminFee(
@@ -516,6 +554,8 @@ export function useMidtrans() {
         },
         onPending: (result: MidtransResult) => {
           console.log("Bulk payment pending:", result);
+          isPopupOpenRef.current = false;
+          setIsProcessing(false);
 
           toast({
             title: "Pembayaran Tertunda",
@@ -526,6 +566,8 @@ export function useMidtrans() {
         },
         onError: (result: MidtransResult) => {
           console.error("Bulk payment error:", result);
+          isPopupOpenRef.current = false;
+          setIsProcessing(false);
 
           toast({
             variant: "destructive",
@@ -537,6 +579,8 @@ export function useMidtrans() {
         },
         onClose: () => {
           console.log("Bulk payment popup closed");
+          isPopupOpenRef.current = false;
+          setIsProcessing(false);
 
           toast({
             title: "Pembayaran Dibatalkan",
@@ -552,7 +596,11 @@ export function useMidtrans() {
         description: error.message || "Gagal memproses pembayaran",
       });
     } finally {
-      setIsProcessing(false);
+      // If the popup never opened (error before snap.pay), reset here.
+      // Otherwise the snap.pay callbacks own resetting isProcessing/isPopupOpenRef.
+      if (!popupOpened) {
+        setIsProcessing(false);
+      }
     }
   };
 
