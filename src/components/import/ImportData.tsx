@@ -55,6 +55,8 @@ interface ImportResult {
   success: number;
   failed: number;
   errors: string[];
+  inserted?: number;
+  updated?: number;
 }
 
 interface ParsedRow {
@@ -91,7 +93,8 @@ const IMPORT_TEMPLATES: Record<
       ["12346", "Siti Aminah", "8B"],
       ["12347", "Muhammad Rizki", "9C"],
     ],
-    description: "nik (wajib, unik), nama, kelas",
+    description:
+      "nik (wajib, unik), nama, kelas - NIK baru akan ditambahkan, NIK yang sudah terdaftar akan diperbarui nama/kelasnya",
   },
   students_wadiah: {
     headers: ["nik", "nama", "kelas", "saldo_wadiah"],
@@ -724,48 +727,114 @@ export function ImportData({
           return;
         }
 
-        for (let i = 0; i < studentsToInsert.length; i += batchSize) {
-          const batch = studentsToInsert.slice(i, i + batchSize);
-          // NIK is now required - filter for name, class, AND nik
-          const validBatch = batch
-            .filter((s) => s.name && s.class && s.nik)
-            .map(({ _rowIndex, ...student }) => student); // Remove _rowIndex before insert
-          const invalidCount = batch.filter(
-            (s) => !s.name || !s.class || !s.nik,
-          ).length;
-
-          if (validBatch.length > 0) {
-            const { error, data } = await supabase
-              .from("students")
-              .insert(validBatch)
-              .select();
-
-            if (error) {
-              results.failed += validBatch.length;
-              // Handle unique constraint violation for NIK
-              if (error.code === "23505" && error.message.includes("nik")) {
-                results.errors.push(
-                  `Batch ${Math.floor(i / batchSize) + 1}: NIK sudah terdaftar di database`,
-                );
-              } else {
-                results.errors.push(
-                  `Batch ${Math.floor(i / batchSize) + 1}: ${error.message}`,
-                );
-              }
-            } else {
-              results.success += data?.length || 0;
-            }
-          }
-
-          // Track invalid rows (missing name, class, or nik)
-          if (invalidCount > 0) {
-            results.errors.push(
-              `${invalidCount} baris dilewati karena nama, kelas, atau NIK kosong`,
-            );
-          }
-          results.failed += invalidCount;
-          setProgress(Math.round(((i + batch.length) / totalRows) * 100));
+        // Rows missing required fields are skipped upfront
+        const invalidRows = studentsToInsert.filter(
+          (s) => !s.name || !s.class || !s.nik,
+        );
+        if (invalidRows.length > 0) {
+          results.errors.push(
+            `${invalidRows.length} baris dilewati karena nama, kelas, atau NIK kosong`,
+          );
         }
+        const validRows = studentsToInsert.filter(
+          (s) => s.name && s.class && s.nik,
+        );
+        results.failed += invalidRows.length;
+
+        // Look up which NIKs already exist so we can update instead of insert
+        const existingByNik = new Map<string, { id: string }>();
+        for (let i = 0; i < validRows.length; i += 200) {
+          const nikChunk = validRows
+            .slice(i, i + 200)
+            .map((s) => s.nik);
+          const { data: existing, error: lookupError } = await supabase
+            .from("students")
+            .select("id, nik")
+            .in("nik", nikChunk);
+
+          if (lookupError) {
+            results.failed += validRows.length;
+            results.errors.push(
+              `Gagal memeriksa NIK yang sudah ada: ${lookupError.message}`,
+            );
+            setResult(results);
+            setImporting(false);
+            return;
+          }
+          for (const s of existing || []) {
+            if (s.nik) existingByNik.set(s.nik, { id: s.id });
+          }
+        }
+
+        const rowsToInsert = validRows.filter((s) => !existingByNik.has(s.nik));
+        const rowsToUpdate = validRows.filter((s) => existingByNik.has(s.nik));
+
+        let insertedCount = 0;
+        let updatedCount = 0;
+
+        for (let i = 0; i < rowsToInsert.length; i += batchSize) {
+          const batch = rowsToInsert
+            .slice(i, i + batchSize)
+            .map(({ _rowIndex, ...student }) => student);
+
+          const { error, data } = await supabase
+            .from("students")
+            .insert(batch)
+            .select();
+
+          if (error) {
+            results.failed += batch.length;
+            if (error.code === "23505" && error.message.includes("nik")) {
+              results.errors.push(
+                `Batch ${Math.floor(i / batchSize) + 1}: NIK sudah terdaftar di database`,
+              );
+            } else {
+              results.errors.push(
+                `Batch ${Math.floor(i / batchSize) + 1}: ${error.message}`,
+              );
+            }
+          } else {
+            insertedCount += data?.length || 0;
+          }
+          setProgress(
+            Math.round(((i + batch.length) / validRows.length) * 50),
+          );
+        }
+
+        // Update existing students by NIK - only name/class, never
+        // parent_id or student_code, so parent claims stay intact
+        for (let i = 0; i < rowsToUpdate.length; i += batchSize) {
+          const batch = rowsToUpdate.slice(i, i + batchSize);
+          const updateResults = await Promise.all(
+            batch.map((s) =>
+              supabase
+                .from("students")
+                .update({ name: s.name, class: s.class })
+                .eq("nik", s.nik),
+            ),
+          );
+
+          updateResults.forEach((res, idx) => {
+            if (res.error) {
+              results.failed += 1;
+              results.errors.push(
+                `Baris ${batch[idx]._rowIndex + 1}: ${res.error.message}`,
+              );
+            } else {
+              updatedCount += 1;
+            }
+          });
+          setProgress(
+            50 +
+              Math.round(
+                ((i + batch.length) / Math.max(rowsToUpdate.length, 1)) * 50,
+              ),
+          );
+        }
+
+        results.inserted = insertedCount;
+        results.updated = updatedCount;
+        results.success = insertedCount + updatedCount;
       } else if (importType === "students_wadiah") {
         // Import/Update students with wadiah balance (for data migration)
         // This supports UPSERT - will update existing students' wadiah balance
@@ -1149,9 +1218,14 @@ export function ImportData({
       setResult(results);
 
       if (results.success > 0) {
+        const breakdown =
+          importType === "students" &&
+          (results.inserted !== undefined || results.updated !== undefined)
+            ? `${results.inserted || 0} siswa baru ditambahkan, ${results.updated || 0} siswa diperbarui`
+            : `${results.success} data berhasil diimport`;
         toast({
           title: "Import selesai",
-          description: `${results.success} data berhasil diimport${results.failed > 0 ? `, ${results.failed} gagal` : ""}`,
+          description: `${breakdown}${results.failed > 0 ? `, ${results.failed} gagal` : ""}`,
         });
         onImportComplete?.();
       } else {
