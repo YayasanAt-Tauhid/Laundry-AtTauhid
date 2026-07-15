@@ -98,6 +98,8 @@ export default function Students() {
   const [totalCount, setTotalCount] = useState(0);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importParentDialogOpen, setImportParentDialogOpen] = useState(false);
+  const [nikSearchQuery, setNikSearchQuery] = useState("");
+  const [nikSearchLoading, setNikSearchLoading] = useState(false);
 
   // NIK validation states
   const [nikChecking, setNikChecking] = useState(false);
@@ -434,6 +436,42 @@ export default function Students() {
     setNikAvailable(true); // Current NIK is valid for this student
     setNikError(null);
     setDialogOpen(true);
+  };
+
+  const handleSearchByNik = async () => {
+    const nik = nikSearchQuery.trim();
+    if (!nik) return;
+
+    setNikSearchLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("students")
+        .select("*")
+        .eq("nik", nik)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      if (!data) {
+        toast({
+          variant: "destructive",
+          title: "Tidak Ditemukan",
+          description: `Tidak ada siswa dengan NIK "${nik}"`,
+        });
+        return;
+      }
+
+      handleEdit(data as Student);
+    } catch (error) {
+      console.error("Error searching student by NIK:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Gagal mencari siswa berdasarkan NIK",
+      });
+    } finally {
+      setNikSearchLoading(false);
+    }
   };
 
   const handleDelete = async () => {
@@ -783,6 +821,41 @@ export default function Students() {
           )}
         </div>
 
+        {/* Search & Update by NIK */}
+        {(userRole === "admin" || userRole === "staff") && (
+          <Card className="dashboard-card">
+            <CardContent className="pt-6">
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="flex-1 space-y-1">
+                  <Label htmlFor="nik-search">Cari &amp; Update Siswa berdasarkan NIK</Label>
+                  <Input
+                    id="nik-search"
+                    value={nikSearchQuery}
+                    onChange={(e) => setNikSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleSearchByNik();
+                      }
+                    }}
+                    placeholder="Masukkan NIK siswa"
+                  />
+                </div>
+                <Button
+                  className="sm:self-end"
+                  onClick={handleSearchByNik}
+                  disabled={nikSearchLoading || !nikSearchQuery.trim()}
+                >
+                  {nikSearchLoading && (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  )}
+                  Cari &amp; Edit
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Students Grid */}
         {loading ? (
           <div className="flex items-center justify-center py-12">
@@ -827,7 +900,9 @@ export default function Students() {
                         </p>
                       </div>
                     </div>
-                    {userRole === "parent" && (
+                    {(userRole === "parent" ||
+                      userRole === "admin" ||
+                      userRole === "staff") && (
                       <div className="flex gap-1">
                         <Button
                           variant="ghost"
