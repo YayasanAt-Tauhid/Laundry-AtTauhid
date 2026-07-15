@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -66,6 +67,20 @@ interface PotentialDuplicate {
   similarity_score: number;
 }
 
+interface StudentRequest {
+  id: string;
+  parent_id: string;
+  student_id: string | null;
+  nik: string;
+  name: string;
+  class: string;
+  status: "pending" | "approved" | "rejected";
+  rejection_reason: string | null;
+  created_at: string;
+  parent_name?: string | null;
+  parent_phone?: string | null;
+}
+
 interface NikCheckResult {
   available: boolean;
   message: string;
@@ -119,6 +134,14 @@ export default function Students() {
     PotentialDuplicate[]
   >([]);
   const [pendingSubmit, setPendingSubmit] = useState(false);
+
+  // Student registration requests (parent submission -> admin validation)
+  const [myRequests, setMyRequests] = useState<StudentRequest[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<StudentRequest[]>([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
+  const [reviewingRequestId, setReviewingRequestId] = useState<string | null>(null);
+  const [rejectDialogRequest, setRejectDialogRequest] = useState<StudentRequest | null>(null);
+  const [rejectionReason, setRejectionReason] = useState("");
 
   // Track if component is mounted
   const isMounted = useRef(true);
@@ -278,6 +301,112 @@ export default function Students() {
     }
   };
 
+  // Parent's own registration requests (pending/approved/rejected)
+  const fetchMyRequests = useCallback(async () => {
+    if (!user || userRole !== "parent") return;
+    try {
+      const { data, error } = await supabase
+        .from("student_registration_requests")
+        .select("id, parent_id, student_id, nik, name, class, status, rejection_reason, created_at")
+        .eq("parent_id", user.id)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      setMyRequests((data || []) as StudentRequest[]);
+    } catch (error) {
+      console.error("Error fetching my requests:", error);
+    }
+  }, [user, userRole]);
+
+  // Admin: pending requests waiting for validation
+  const fetchPendingRequests = useCallback(async () => {
+    if (userRole !== "admin") return;
+    setRequestsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("student_registration_requests")
+        .select("id, parent_id, student_id, nik, name, class, status, rejection_reason, created_at")
+        .eq("status", "pending")
+        .order("created_at", { ascending: true });
+
+      if (error) throw error;
+
+      const requests = (data || []) as StudentRequest[];
+      const parentIds = [...new Set(requests.map((r) => r.parent_id))];
+
+      if (parentIds.length > 0) {
+        const { data: parentProfiles } = await supabase
+          .from("profiles")
+          .select("user_id, full_name, phone")
+          .in("user_id", parentIds);
+
+        const profileMap = new Map(
+          (parentProfiles || []).map((p) => [p.user_id, p]),
+        );
+
+        requests.forEach((r) => {
+          const profile = profileMap.get(r.parent_id);
+          r.parent_name = profile?.full_name || null;
+          r.parent_phone = profile?.phone || null;
+        });
+      }
+
+      setPendingRequests(requests);
+    } catch (error) {
+      console.error("Error fetching pending requests:", error);
+    } finally {
+      setRequestsLoading(false);
+    }
+  }, [userRole]);
+
+  useEffect(() => {
+    fetchMyRequests();
+    fetchPendingRequests();
+  }, [fetchMyRequests, fetchPendingRequests]);
+
+  const handleReviewRequest = async (
+    requestId: string,
+    decision: "approved" | "rejected",
+    reason?: string,
+  ) => {
+    setReviewingRequestId(requestId);
+    try {
+      const { data, error } = await supabase.rpc(
+        "review_student_registration_request",
+        {
+          p_request_id: requestId,
+          p_decision: decision,
+          p_rejection_reason: reason || null,
+        },
+      );
+
+      if (error) throw error;
+
+      const result = data as unknown as { success: boolean; message: string };
+      toast({
+        variant: result.success ? "default" : "destructive",
+        title: result.success ? "Berhasil" : "Gagal",
+        description: result.message,
+      });
+
+      setRejectDialogRequest(null);
+      setRejectionReason("");
+      fetchPendingRequests();
+      fetchStudents();
+    } catch (error: unknown) {
+      console.error("Error reviewing request:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : "Gagal memproses pengajuan";
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: errorMessage,
+      });
+    } finally {
+      setReviewingRequestId(null);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
@@ -315,6 +444,14 @@ export default function Students() {
         setDuplicateWarningOpen(true);
         return;
       }
+    }
+
+    // Parents can't insert students directly - a brand-new NIK becomes a
+    // pending registration request that an admin must approve.
+    if (!selectedStudent && userRole === "parent") {
+      setPendingSubmit(false);
+      await handleSubmitNewStudentRequest();
+      return;
     }
 
     setSaving(true);
@@ -521,7 +658,7 @@ export default function Students() {
     setDialogOpen(true);
   };
 
-  // Handle claim existing student
+  // Handle claim existing student (submits a pending request, admin must validate)
   const handleClaimStudent = async () => {
     if (!user || !existingNikStudent) return;
 
@@ -536,20 +673,23 @@ export default function Students() {
 
     setClaiming(true);
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase.rpc as any)("claim_student", {
-        p_student_id: existingNikStudent.id,
-        p_parent_id: user.id,
-        p_student_code: claimStudentCode.trim(),
-      });
+      const { data, error } = await supabase.rpc(
+        "submit_student_registration_request",
+        {
+          p_nik: formData.nik,
+          p_name: existingNikStudent.name,
+          p_class: existingNikStudent.class,
+          p_student_code: claimStudentCode.trim(),
+        },
+      );
 
       if (error) throw error;
 
-      const result = data as { success: boolean; message: string };
+      const result = data as unknown as { success: boolean; message: string };
       if (result.success) {
         toast({
-          title: "Berhasil",
-          description: `Siswa ${existingNikStudent.name} berhasil diklaim dan ditambahkan ke daftar anak Anda.`,
+          title: "Pengajuan Terkirim",
+          description: result.message,
         });
       } else {
         toast({
@@ -570,10 +710,11 @@ export default function Students() {
       setExistingNikStudent(null);
       setCanClaimStudent(false);
       fetchStudents();
+      fetchMyRequests();
     } catch (error: unknown) {
-      console.error("Error claiming student:", error);
+      console.error("Error submitting claim request:", error);
       const errorMessage =
-        error instanceof Error ? error.message : "Gagal mengklaim siswa";
+        error instanceof Error ? error.message : "Gagal mengirim pengajuan klaim siswa";
       toast({
         variant: "destructive",
         title: "Error",
@@ -581,6 +722,57 @@ export default function Students() {
       });
     } finally {
       setClaiming(false);
+    }
+  };
+
+  // Handle submitting a brand-new student (NIK not found yet) as a pending request
+  const handleSubmitNewStudentRequest = async () => {
+    if (!user) return;
+
+    setSaving(true);
+    try {
+      const { data, error } = await supabase.rpc(
+        "submit_student_registration_request",
+        {
+          p_nik: formData.nik.trim(),
+          p_name: formData.name.trim(),
+          p_class: formData.class.trim(),
+        },
+      );
+
+      if (error) throw error;
+
+      const result = data as unknown as { success: boolean; message: string };
+      if (!result.success) {
+        toast({
+          variant: "destructive",
+          title: "Gagal",
+          description: result.message,
+        });
+        return;
+      }
+
+      toast({
+        title: "Pengajuan Terkirim",
+        description: result.message,
+      });
+
+      setDialogOpen(false);
+      setFormData({ name: "", class: "", nik: "" });
+      setNikAvailable(null);
+      setNikError(null);
+      fetchMyRequests();
+    } catch (error: unknown) {
+      console.error("Error submitting new student request:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : "Gagal mengirim pengajuan siswa";
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: errorMessage,
+      });
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -749,14 +941,17 @@ export default function Students() {
                                 onClick={() => setClaimDialogOpen(true)}
                               >
                                 <CheckCircle2 className="h-4 w-4 mr-1" />
-                                Klaim Sebagai Anak Saya
+                                Ajukan Klaim Sebagai Anak Saya
                               </Button>
                             </div>
                           </div>
                         )}
                     </div>
-                    {/* Only show name/class fields for admin/staff or when editing */}
-                    {(userRole !== "parent" || selectedStudent) && (
+                    {/* Show name/class fields for admin/staff, when editing, or when a
+                        parent is submitting a brand-new (unclaimed-elsewhere) NIK */}
+                    {(userRole !== "parent" ||
+                      selectedStudent ||
+                      nikAvailable === true) && (
                       <>
                         <div className="space-y-2">
                           <Label htmlFor="name">
@@ -786,6 +981,12 @@ export default function Students() {
                             required
                           />
                         </div>
+                        {userRole === "parent" && !selectedStudent && (
+                          <p className="text-xs text-muted-foreground">
+                            Data siswa baru akan menunggu validasi admin sebelum
+                            muncul di daftar anak Anda.
+                          </p>
+                        )}
                       </>
                     )}
                     <div className="flex gap-3 justify-end">
@@ -796,8 +997,10 @@ export default function Students() {
                       >
                         Batal
                       </Button>
-                      {/* Hide submit button for parent in add mode (they use claim) */}
-                      {(userRole !== "parent" || selectedStudent) && (
+                      {/* Hide submit button when the claim card offers its own button */}
+                      {(userRole !== "parent" ||
+                        selectedStudent ||
+                        nikAvailable === true) && (
                         <Button
                           type="submit"
                           disabled={
@@ -810,7 +1013,11 @@ export default function Students() {
                           {saving && (
                             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                           )}
-                          {selectedStudent ? "Simpan Perubahan" : "Tambah Siswa"}
+                          {selectedStudent
+                            ? "Simpan Perubahan"
+                            : userRole === "parent"
+                              ? "Ajukan Siswa"
+                              : "Tambah Siswa"}
                         </Button>
                       )}
                     </div>
@@ -852,6 +1059,117 @@ export default function Students() {
                   Cari &amp; Edit
                 </Button>
               </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Admin: pending student registration requests waiting for validation */}
+        {userRole === "admin" && pendingRequests.length > 0 && (
+          <Card className="dashboard-card border-amber-300 dark:border-amber-700">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <AlertTriangle className="h-5 w-5 text-amber-600" />
+                Validasi Pengajuan Siswa ({pendingRequests.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {pendingRequests.map((req) => (
+                <div
+                  key={req.id}
+                  className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 border rounded-lg"
+                >
+                  <div>
+                    <p className="font-medium">
+                      {req.name}{" "}
+                      <span className="text-muted-foreground font-normal">
+                        • Kelas {req.class}
+                      </span>
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      NIK: {req.nik}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Diajukan oleh: {req.parent_name || "-"}
+                      {req.parent_phone ? ` • ${req.parent_phone}` : ""}
+                    </p>
+                    <Badge variant="outline" className="mt-1 text-xs">
+                      {req.student_id ? "Klaim siswa lama" : "Siswa baru"}
+                    </Badge>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-destructive border-destructive hover:bg-destructive/10"
+                      disabled={reviewingRequestId === req.id}
+                      onClick={() => {
+                        setRejectDialogRequest(req);
+                        setRejectionReason("");
+                      }}
+                    >
+                      <XCircle className="h-4 w-4 mr-1" />
+                      Tolak
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={reviewingRequestId === req.id}
+                      onClick={() => handleReviewRequest(req.id, "approved")}
+                    >
+                      {reviewingRequestId === req.id ? (
+                        <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="h-4 w-4 mr-1" />
+                      )}
+                      Setujui
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Parent: status of own submitted requests */}
+        {userRole === "parent" && myRequests.length > 0 && (
+          <Card className="dashboard-card">
+            <CardHeader>
+              <CardTitle className="text-base">Pengajuan Saya</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {myRequests.map((req) => (
+                <div
+                  key={req.id}
+                  className="flex items-center justify-between gap-3 p-3 border rounded-lg"
+                >
+                  <div>
+                    <p className="font-medium">
+                      {req.name}{" "}
+                      <span className="text-muted-foreground font-normal">
+                        • Kelas {req.class}
+                      </span>
+                    </p>
+                    <p className="text-sm text-muted-foreground">NIK: {req.nik}</p>
+                    {req.status === "rejected" && req.rejection_reason && (
+                      <p className="text-sm text-destructive mt-1">
+                        Ditolak: {req.rejection_reason}
+                      </p>
+                    )}
+                  </div>
+                  <Badge
+                    variant={
+                      req.status === "approved"
+                        ? "default"
+                        : req.status === "rejected"
+                          ? "destructive"
+                          : "secondary"
+                    }
+                  >
+                    {req.status === "pending" && "Menunggu Validasi"}
+                    {req.status === "approved" && "Disetujui"}
+                    {req.status === "rejected" && "Ditolak"}
+                  </Badge>
+                </div>
+              ))}
             </CardContent>
           </Card>
         )}
@@ -1035,11 +1353,11 @@ export default function Students() {
             <AlertDialogHeader>
               <AlertDialogTitle className="flex items-center gap-2">
                 <GraduationCap className="h-5 w-5 text-primary" />
-                Konfirmasi Klaim Siswa
+                Konfirmasi Pengajuan Klaim Siswa
               </AlertDialogTitle>
               <AlertDialogDescription asChild>
                 <div className="space-y-3">
-                  <p>Anda akan mengklaim siswa berikut sebagai anak Anda:</p>
+                  <p>Anda akan mengajukan klaim siswa berikut sebagai anak Anda:</p>
                   {existingNikStudent && (
                     <div className="p-3 border rounded-lg bg-muted/50">
                       <p className="font-semibold">{existingNikStudent.name}</p>
@@ -1067,8 +1385,9 @@ export default function Students() {
                     </p>
                   </div>
                   <p className="text-sm">
-                    Setelah diklaim, siswa ini akan muncul di daftar anak Anda
-                    dan Anda dapat melihat tagihan serta riwayat transaksinya.
+                    Pengajuan akan menunggu validasi admin. Setelah disetujui,
+                    siswa ini baru muncul di daftar anak Anda beserta tagihan
+                    dan riwayat transaksinya.
                   </p>
                 </div>
               </AlertDialogDescription>
@@ -1081,7 +1400,58 @@ export default function Students() {
                 className="bg-primary"
               >
                 {claiming && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Ya, Klaim Siswa Ini
+                Ya, Ajukan Klaim
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Admin: Reject Request Dialog */}
+        <AlertDialog
+          open={!!rejectDialogRequest}
+          onOpenChange={(open) => {
+            if (!open) {
+              setRejectDialogRequest(null);
+              setRejectionReason("");
+            }
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Tolak Pengajuan Siswa?</AlertDialogTitle>
+              <AlertDialogDescription asChild>
+                <div className="space-y-3">
+                  <p>
+                    Anda akan menolak pengajuan{" "}
+                    <span className="font-semibold text-foreground">
+                      {rejectDialogRequest?.name}
+                    </span>
+                    .
+                  </p>
+                  <div className="space-y-2">
+                    <Label htmlFor="rejection-reason" className="text-foreground">
+                      Alasan Penolakan (opsional)
+                    </Label>
+                    <Textarea
+                      id="rejection-reason"
+                      value={rejectionReason}
+                      onChange={(e) => setRejectionReason(e.target.value)}
+                      placeholder="Contoh: NIK tidak sesuai data sekolah"
+                    />
+                  </div>
+                </div>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Batal</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() =>
+                  rejectDialogRequest &&
+                  handleReviewRequest(rejectDialogRequest.id, "rejected", rejectionReason.trim() || undefined)
+                }
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Ya, Tolak Pengajuan
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
