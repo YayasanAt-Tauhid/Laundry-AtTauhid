@@ -198,7 +198,6 @@ export const ordersApi = {
     itemCount?: number;
     pricePerUnit: number;
     totalPrice: number;
-    adminFee?: number;
     yayasanShare?: number;
     vendorShare?: number;
     notes?: string;

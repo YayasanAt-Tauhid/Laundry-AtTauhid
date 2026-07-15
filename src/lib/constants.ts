@@ -50,81 +50,13 @@ export const USER_ROLES = {
   partner: { label: "Mitra Laundry", color: "role-partner" },
 } as const;
 
-// Payment method configuration with admin fees
-export const PAYMENT_METHODS = {
-  qris: {
-    label: "QRIS",
-    feeType: "percentage" as const,
-    feeValue: 0.7, // 0.7%
-  },
-  bank_transfer: {
-    label: "Virtual Account",
-    feeType: "flat" as const,
-    feeValue: 4400, // Rp 4,400
-  },
-  echannel: {
-    label: "Virtual Account",
-    feeType: "flat" as const,
-    feeValue: 4400, // Rp 4,400
-  },
-  permata_va: {
-    label: "Virtual Account",
-    feeType: "flat" as const,
-    feeValue: 4400, // Rp 4,400
-  },
-  bca_va: {
-    label: "Virtual Account",
-    feeType: "flat" as const,
-    feeValue: 4400, // Rp 4,400
-  },
-  bni_va: {
-    label: "Virtual Account",
-    feeType: "flat" as const,
-    feeValue: 4400, // Rp 4,400
-  },
-  bri_va: {
-    label: "Virtual Account",
-    feeType: "flat" as const,
-    feeValue: 4400, // Rp 4,400
-  },
-  other_va: {
-    label: "Virtual Account",
-    feeType: "flat" as const,
-    feeValue: 4400, // Rp 4,400
-  },
-} as const;
-
-// Maximum amount for QRIS payment (Rp 628,000)
-export const QRIS_MAX_AMOUNT = 628000;
-
-// Calculate admin fee based on base amount
-// QRIS for < Rp 628,000 (0.7%), VA for >= Rp 628,000 (Rp 4,400)
-export const calculateAdminFee = (
-  baseAmount: number,
-  paymentMethod?: string,
-): number => {
-  // If payment method is specified, use its fee
-  if (paymentMethod && paymentMethod in PAYMENT_METHODS) {
-    const method =
-      PAYMENT_METHODS[paymentMethod as keyof typeof PAYMENT_METHODS];
-    if (method.feeType === "percentage") {
-      return Math.ceil(baseAmount * (method.feeValue / 100));
-    } else {
-      return method.feeValue;
-    }
-  }
-
-  // Auto-select based on amount: QRIS for < 628,000, VA for >= 628,000
-  if (baseAmount < QRIS_MAX_AMOUNT) {
-    return Math.ceil(baseAmount * (PAYMENT_METHODS.qris.feeValue / 100));
-  } else {
-    return PAYMENT_METHODS.bank_transfer.feeValue;
-  }
-};
+// Threshold amount for choosing QRIS vs Virtual Account payment channels
+// (Midtrans split payment now handles any processing fees automatically)
+const QRIS_CHANNEL_MAX_AMOUNT = 628000;
 
 // Get enabled payment methods for Midtrans based on amount
 export const getEnabledPaymentMethods = (amount: number) => {
-  if (amount < QRIS_MAX_AMOUNT) {
+  if (amount < QRIS_CHANNEL_MAX_AMOUNT) {
     // QRIS payment channels - gopay and shopeepay support QRIS
     // Also include 'qris' for Midtrans QRIS feature
     return {
@@ -150,4 +82,3 @@ export const getEnabledPaymentMethods = (amount: number) => {
 export type LaundryCategory = keyof typeof LAUNDRY_CATEGORIES;
 export type OrderStatus = keyof typeof ORDER_STATUS;
 export type UserRole = keyof typeof USER_ROLES;
-export type PaymentMethod = keyof typeof PAYMENT_METHODS;

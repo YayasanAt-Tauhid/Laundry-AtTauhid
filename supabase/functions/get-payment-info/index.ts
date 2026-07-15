@@ -11,21 +11,13 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const QRIS_MAX_AMOUNT = 628000;
-const QRIS_FEE_PERCENT = 0.7;
-const VA_FEE_FLAT = 4400;
+// Threshold amount for choosing QRIS vs Virtual Account payment channels.
+// Midtrans split payment now handles any processing fees automatically,
+// so this app no longer calculates or charges an admin fee.
+const QRIS_CHANNEL_MAX_AMOUNT = 628000;
 
-function calculateAdminFee(baseAmount: number) {
-  if (baseAmount <= QRIS_MAX_AMOUNT) {
-    return {
-      adminFee: Math.ceil(baseAmount * (QRIS_FEE_PERCENT / 100)),
-      paymentType: "qris" as const,
-    };
-  }
-  return {
-    adminFee: VA_FEE_FLAT,
-    paymentType: "va" as const,
-  };
+function getPaymentType(baseAmount: number) {
+  return baseAmount <= QRIS_CHANNEL_MAX_AMOUNT ? ("qris" as const) : ("va" as const);
 }
 
 // Helper to map orders to SAFE item details (no sensitive data)
@@ -124,8 +116,8 @@ serve(async (req) => {
         const firstStatus = existingOrders[0].status;
         const student = existingOrders[0].student as { name: string; class: string } | null;
         const totalAmount = existingOrders.reduce((sum, o) => sum + (o.total_price || 0), 0);
-        const { adminFee, paymentType } = calculateAdminFee(totalAmount);
-        
+        const paymentType = getPaymentType(totalAmount);
+
         if (firstStatus === "DIBAYAR" || firstStatus === "SELESAI") {
           return new Response(
             JSON.stringify({
@@ -134,8 +126,6 @@ serve(async (req) => {
               studentClass: student?.class || "",
               orderCount: existingOrders.length,
               totalAmount,
-              adminFee,
-              grandTotal: totalAmount + adminFee,
               paymentType,
               orderItems: mapOrderItems(existingOrders),
             }),
@@ -151,8 +141,6 @@ serve(async (req) => {
             studentClass: student?.class || "",
             orderCount: existingOrders.length,
             totalAmount,
-            adminFee,
-            grandTotal: totalAmount + adminFee,
             paymentType,
             midtransOrderId: token,
             orderIds: existingOrders.map(o => o.id),
@@ -177,8 +165,7 @@ serve(async (req) => {
     }
 
     const totalAmount = orders.reduce((sum, o) => sum + (o.total_price || 0), 0);
-    const { adminFee, paymentType } = calculateAdminFee(totalAmount);
-    const grandTotal = totalAmount + adminFee;
+    const paymentType = getPaymentType(totalAmount);
     const snapToken = firstOrder.midtrans_snap_token;
 
     if (!snapToken) {
@@ -214,8 +201,6 @@ serve(async (req) => {
               studentClass: student.class,
               orderCount: orders.length,
               totalAmount,
-              adminFee,
-              grandTotal,
               paymentType,
               midtransOrderId: token,
               orderIds: orders.map(o => o.id),
@@ -235,8 +220,6 @@ serve(async (req) => {
         studentClass: student.class,
         orderCount: orders.length,
         totalAmount,
-        adminFee,
-        grandTotal,
         paymentType,
         token: snapToken,
         midtransOrderId: token,

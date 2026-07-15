@@ -15,11 +15,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const APP_IDENTIFIER = "LAUNDRY-ATTAUHID";
 
-const PAYMENT_CONFIG = {
-  QRIS_MAX_AMOUNT: 628000,
-  QRIS_FEE_PERCENTAGE: 0.7,
-  VA_FEE_FLAT: 4400,
-} as const;
+// Threshold amount for choosing QRIS vs Virtual Account payment channels.
+// Midtrans split payment now handles any processing fees automatically,
+// so this app no longer calculates or charges an admin fee.
+const QRIS_CHANNEL_MAX_AMOUNT = 628000;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -27,22 +26,17 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-/** Calculate admin fee and payment method based on amount */
-function calculatePaymentMethod(baseAmount: number) {
-  if (baseAmount <= PAYMENT_CONFIG.QRIS_MAX_AMOUNT) {
-    const adminFee = Math.ceil((baseAmount * PAYMENT_CONFIG.QRIS_FEE_PERCENTAGE) / 100);
+/** Determine which Midtrans payment channels to enable based on amount */
+function selectPaymentMethod(baseAmount: number) {
+  if (baseAmount <= QRIS_CHANNEL_MAX_AMOUNT) {
     return {
-      adminFee,
       paymentMethod: "qris",
       enabledPayments: ["other_qris"],
-      feeType: `${PAYMENT_CONFIG.QRIS_FEE_PERCENTAGE}%`,
     };
   }
   return {
-    adminFee: PAYMENT_CONFIG.VA_FEE_FLAT,
     paymentMethod: "bank_transfer",
     enabledPayments: ["bank_transfer"],
-    feeType: `Rp ${PAYMENT_CONFIG.VA_FEE_FLAT.toLocaleString("id-ID")}`,
   };
 }
 
@@ -201,15 +195,12 @@ serve(async (req) => {
     // =====================================================
     // AUTO PAYMENT METHOD: QRIS <= 628k, VA > 628k
     // =====================================================
-    const { adminFee, paymentMethod, enabledPayments, feeType } = calculatePaymentMethod(grossAmount);
+    const { paymentMethod, enabledPayments } = selectPaymentMethod(grossAmount);
 
     // Generate unique order ID for Midtrans
     const midtransOrderId = isBulk
       ? `${APP_IDENTIFIER}-BULK-${Date.now()}`
       : `${APP_IDENTIFIER}-SINGLE-${orderId.substring(0, 8)}-${Date.now()}`;
-
-    // Calculate total with admin fee
-    const totalWithFee = grossAmount + adminFee;
 
     // Prepare item details
     const itemName = isBulk
@@ -225,20 +216,11 @@ serve(async (req) => {
       },
     ];
 
-    if (adminFee > 0) {
-      itemDetails.push({
-        id: "ADMIN_FEE",
-        price: adminFee,
-        quantity: 1,
-        name: `Biaya Admin (${feeType})`,
-      });
-    }
-
     // Prepare Midtrans transaction data
     const transactionData: Record<string, any> = {
       transaction_details: {
         order_id: midtransOrderId,
-        gross_amount: totalWithFee,
+        gross_amount: grossAmount,
       },
       item_details: itemDetails,
       customer_details: {
@@ -279,10 +261,6 @@ serve(async (req) => {
     }
 
     // Update orders with midtrans info
-    const adminFeePerOrder = isBulk
-      ? Math.ceil(adminFee / orderIdsToUpdate.length)
-      : adminFee;
-
     for (const oid of orderIdsToUpdate) {
       const { error: updateError } = await supabase
         .from("laundry_orders")
@@ -290,7 +268,6 @@ serve(async (req) => {
           midtrans_order_id: midtransOrderId,
           midtrans_snap_token: midtransResult.token,
           status: "MENUNGGU_PEMBAYARAN",
-          admin_fee: adminFeePerOrder,
         })
         .eq("id", oid);
 
@@ -305,8 +282,6 @@ serve(async (req) => {
         redirect_url: midtransResult.redirect_url,
         order_id: midtransOrderId,
         payment_method: paymentMethod,
-        admin_fee: adminFee,
-        fee_type: feeType,
       }),
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
