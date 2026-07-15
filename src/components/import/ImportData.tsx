@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import * as XLSX from "xlsx-js-style";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -233,6 +234,7 @@ export function ImportData({
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [downloadingTemplate, setDownloadingTemplate] = useState(false);
 
   // Lookup data for orders import
   const [students, setStudents] = useState<StudentLookup[]>([]);
@@ -333,6 +335,42 @@ export function ImportData({
     return { headers: headerRow, rows };
   };
 
+  const parseExcelFile = async (
+    file: File,
+  ): Promise<{ headers: string[]; rows: ParsedRow[] }> => {
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: "array" });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const raw: unknown[][] = XLSX.utils.sheet_to_json(sheet, {
+      header: 1,
+      blankrows: false,
+      defval: "",
+    });
+
+    if (raw.length === 0) return { headers: [], rows: [] };
+
+    const headerRow = raw[0].map((h) =>
+      String(h ?? "")
+        .toLowerCase()
+        .trim()
+        .replace(/\s+/g, "_"),
+    );
+    const rows: ParsedRow[] = [];
+
+    for (let i = 1; i < raw.length; i++) {
+      const values = raw[i];
+      if (values.some((v) => String(v ?? "").trim())) {
+        const row: ParsedRow = {};
+        headerRow.forEach((header, index) => {
+          row[header] = String(values[index] ?? "").trim();
+        });
+        rows.push(row);
+      }
+    }
+
+    return { headers: headerRow, rows };
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (!selectedFile) return;
@@ -359,32 +397,20 @@ export function ImportData({
         setParsedData(rows);
         validateData(rows, parsedHeaders);
       } else {
-        toast({
-          variant: "default",
-          title: "File Excel terdeteksi",
-          description:
-            "Untuk hasil terbaik, konversi file Excel ke CSV terlebih dahulu.",
-        });
-
-        try {
-          const text = await selectedFile.text();
-          const { headers: parsedHeaders, rows } = parseCSV(text);
-          if (rows.length > 0) {
-            setHeaders(parsedHeaders);
-            setParsedData(rows);
-            validateData(rows, parsedHeaders);
-          } else {
-            throw new Error("Tidak dapat membaca file Excel");
-          }
-        } catch {
+        const { headers: parsedHeaders, rows } =
+          await parseExcelFile(selectedFile);
+        if (rows.length === 0) {
           toast({
             variant: "destructive",
             title: "Gagal membaca file",
-            description:
-              "Silakan konversi file Excel ke format CSV terlebih dahulu.",
+            description: "File Excel kosong atau formatnya tidak dikenali",
           });
           resetState();
+          return;
         }
+        setHeaders(parsedHeaders);
+        setParsedData(rows);
+        validateData(rows, parsedHeaders);
       }
     } catch (error) {
       console.error("Error parsing file:", error);
@@ -1251,31 +1277,55 @@ export function ImportData({
     }
   };
 
-  const downloadTemplate = () => {
-    const template = IMPORT_TEMPLATES[importType];
-    const csvContent = [
-      template.headers.join(","),
-      ...template.example.map((row) =>
-        row.map((cell) => (cell.includes(",") ? `"${cell}"` : cell)).join(","),
-      ),
-    ].join("\n");
+  const downloadTemplate = async () => {
+    setDownloadingTemplate(true);
+    try {
+      const template = IMPORT_TEMPLATES[importType];
+      let rows: string[][] = template.example;
+      let prefilled = false;
 
-    const blob = new Blob(["\ufeff" + csvContent], {
-      type: "text/csv;charset=utf-8;",
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `template_${importType}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+      if (importType === "students") {
+        const allStudents: { nik: string | null; name: string; class: string }[] =
+          [];
+        const pageSize = 1000;
+        for (let from = 0; ; from += pageSize) {
+          const { data, error } = await supabase
+            .from("students")
+            .select("nik, name, class")
+            .order("name")
+            .range(from, from + pageSize - 1);
+          if (error || !data || data.length === 0) break;
+          allStudents.push(...data);
+          if (data.length < pageSize) break;
+        }
 
-    toast({
-      title: "Template diunduh",
-      description: "Silakan isi template dan upload kembali",
-    });
+        if (allStudents.length > 0) {
+          rows = allStudents.map((s) => [s.nik || "", s.name, s.class]);
+          prefilled = true;
+        }
+      }
+
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet([template.headers, ...rows]);
+      XLSX.utils.book_append_sheet(wb, ws, "Template");
+      XLSX.writeFile(wb, `template_${importType}.xlsx`);
+
+      toast({
+        title: "Template diunduh",
+        description: prefilled
+          ? `Template berisi ${rows.length} data siswa saat ini. Edit nama/kelas lalu upload kembali untuk update massal.`
+          : "Silakan isi template dan upload kembali",
+      });
+    } catch (error) {
+      console.error("Error generating template:", error);
+      toast({
+        variant: "destructive",
+        title: "Gagal membuat template",
+        description: "Terjadi kesalahan saat membuat file template",
+      });
+    } finally {
+      setDownloadingTemplate(false);
+    }
   };
 
   const handleClose = () => {
@@ -1347,9 +1397,13 @@ export function ImportData({
                 <Button
                   variant="outline"
                   onClick={downloadTemplate}
-                  disabled={importing}
+                  disabled={importing || downloadingTemplate}
                 >
-                  <Download className="h-4 w-4 mr-2" />
+                  {downloadingTemplate ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4 mr-2" />
+                  )}
                   Download Template
                 </Button>
               </div>
