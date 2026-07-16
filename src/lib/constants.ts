@@ -50,35 +50,6 @@ export const USER_ROLES = {
   partner: { label: "Mitra Laundry", color: "role-partner" },
 } as const;
 
-// Threshold amount for choosing QRIS vs Virtual Account payment channels
-// (Midtrans split payment now handles any processing fees automatically)
-const QRIS_CHANNEL_MAX_AMOUNT = 628000;
-
-// Get enabled payment methods for Midtrans based on amount
-export const getEnabledPaymentMethods = (amount: number) => {
-  if (amount < QRIS_CHANNEL_MAX_AMOUNT) {
-    // QRIS payment channels - gopay and shopeepay support QRIS
-    // Also include 'qris' for Midtrans QRIS feature
-    return {
-      enabled_payments: ["gopay", "shopeepay", "qris"],
-    };
-  } else {
-    // VA and other payment methods for larger amounts
-    return {
-      enabled_payments: [
-        "bank_transfer",
-        "echannel",
-        "permata_va",
-        "bca_va",
-        "bni_va",
-        "bri_va",
-        "cimb_va",
-        "other_va",
-      ],
-    };
-  }
-};
-
 export type LaundryCategory = keyof typeof LAUNDRY_CATEGORIES;
 export type OrderStatus = keyof typeof ORDER_STATUS;
 export type UserRole = keyof typeof USER_ROLES;

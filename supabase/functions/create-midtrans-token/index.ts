@@ -15,30 +15,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const APP_IDENTIFIER = "LAUNDRY-ATTAUHID";
 
-// Threshold amount for choosing QRIS vs Virtual Account payment channels.
-// Midtrans split payment now handles any processing fees automatically,
-// so this app no longer calculates or charges an admin fee.
-const QRIS_CHANNEL_MAX_AMOUNT = 628000;
-
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
-
-/** Determine which Midtrans payment channels to enable based on amount */
-function selectPaymentMethod(baseAmount: number) {
-  if (baseAmount <= QRIS_CHANNEL_MAX_AMOUNT) {
-    return {
-      paymentMethod: "qris",
-      enabledPayments: ["other_qris"],
-    };
-  }
-  return {
-    paymentMethod: "bank_transfer",
-    enabledPayments: ["bank_transfer"],
-  };
-}
 
 interface PaymentRequest {
   orderId: string;
@@ -192,11 +173,6 @@ serve(async (req) => {
       `SECURITY: grossAmount calculated from DB = ${grossAmount} (${orders.length} orders), user=${userId}, role=${userRole}`
     );
 
-    // =====================================================
-    // AUTO PAYMENT METHOD: QRIS <= 628k, VA > 628k
-    // =====================================================
-    const { paymentMethod, enabledPayments } = selectPaymentMethod(grossAmount);
-
     // Generate unique order ID for Midtrans
     const midtransOrderId = isBulk
       ? `${APP_IDENTIFIER}-BULK-${Date.now()}`
@@ -228,7 +204,6 @@ serve(async (req) => {
         email: customerEmail || "customer@example.com",
         phone: customerPhone || "",
       },
-      enabled_payments: enabledPayments,
       custom_field1: APP_IDENTIFIER,
       custom_field2: isBulk ? `BULK:${orderIdsToUpdate.length}` : "SINGLE",
       custom_field3: category,
@@ -281,7 +256,6 @@ serve(async (req) => {
         token: midtransResult.token,
         redirect_url: midtransResult.redirect_url,
         order_id: midtransOrderId,
-        payment_method: paymentMethod,
       }),
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },

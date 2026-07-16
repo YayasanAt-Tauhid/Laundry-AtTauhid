@@ -48,7 +48,6 @@ interface PaymentData {
   studentClass: string;
   orderCount: number;
   totalAmount: number;
-  paymentType: "qris" | "va";
   token?: string;
   midtransOrderId?: string;
   expired?: boolean;
@@ -496,9 +495,7 @@ export default function PublicPayment() {
 
             {/* Payment methods info */}
             <p className="text-xs text-center text-muted-foreground">
-              {paymentData.paymentType === "qris" 
-                ? "Pembayaran melalui QRIS (GoPay, ShopeePay, dll)" 
-                : "Pembayaran melalui Transfer Bank (Virtual Account)"}
+              Pembayaran melalui QRIS, Transfer Bank (Virtual Account), Kartu Kredit, dan metode lainnya
             </p>
           </CardContent>
         </Card>

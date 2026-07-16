@@ -11,15 +11,6 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// Threshold amount for choosing QRIS vs Virtual Account payment channels.
-// Midtrans split payment now handles any processing fees automatically,
-// so this app no longer calculates or charges an admin fee.
-const QRIS_CHANNEL_MAX_AMOUNT = 628000;
-
-function getPaymentType(baseAmount: number) {
-  return baseAmount <= QRIS_CHANNEL_MAX_AMOUNT ? ("qris" as const) : ("va" as const);
-}
-
 // Helper to map orders to SAFE item details (no sensitive data)
 function mapOrderItems(orders: any[]) {
   return orders.map((o: any) => ({
@@ -116,7 +107,6 @@ serve(async (req) => {
         const firstStatus = existingOrders[0].status;
         const student = existingOrders[0].student as { name: string; class: string } | null;
         const totalAmount = existingOrders.reduce((sum, o) => sum + (o.total_price || 0), 0);
-        const paymentType = getPaymentType(totalAmount);
 
         if (firstStatus === "DIBAYAR" || firstStatus === "SELESAI") {
           return new Response(
@@ -126,7 +116,6 @@ serve(async (req) => {
               studentClass: student?.class || "",
               orderCount: existingOrders.length,
               totalAmount,
-              paymentType,
               orderItems: mapOrderItems(existingOrders),
             }),
             { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -141,7 +130,6 @@ serve(async (req) => {
             studentClass: student?.class || "",
             orderCount: existingOrders.length,
             totalAmount,
-            paymentType,
             midtransOrderId: token,
             orderIds: existingOrders.map(o => o.id),
             orderItems: mapOrderItems(existingOrders),
@@ -165,7 +153,6 @@ serve(async (req) => {
     }
 
     const totalAmount = orders.reduce((sum, o) => sum + (o.total_price || 0), 0);
-    const paymentType = getPaymentType(totalAmount);
     const snapToken = firstOrder.midtrans_snap_token;
 
     if (!snapToken) {
@@ -201,7 +188,6 @@ serve(async (req) => {
               studentClass: student.class,
               orderCount: orders.length,
               totalAmount,
-              paymentType,
               midtransOrderId: token,
               orderIds: orders.map(o => o.id),
               orderItems: mapOrderItems(orders),
@@ -220,7 +206,6 @@ serve(async (req) => {
         studentClass: student.class,
         orderCount: orders.length,
         totalAmount,
-        paymentType,
         token: snapToken,
         midtransOrderId: token,
         orderItems: mapOrderItems(orders),
