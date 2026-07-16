@@ -68,7 +68,6 @@ interface Bill {
   weight_kg: number | null;
   item_count: number | null;
   total_price: number;
-  admin_fee: number;
   payment_method: string | null;
   status: OrderStatus;
   created_at: string;
@@ -312,7 +311,6 @@ export default function CashierPOS() {
                     weight_kg,
                     item_count,
                     total_price,
-                    admin_fee,
                     payment_method,
                     status,
                     created_at,

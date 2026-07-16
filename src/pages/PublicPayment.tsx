@@ -48,8 +48,6 @@ interface PaymentData {
   studentClass: string;
   orderCount: number;
   totalAmount: number;
-  adminFee: number;
-  grandTotal: number;
   paymentType: "qris" | "va";
   token?: string;
   midtransOrderId?: string;
@@ -149,7 +147,7 @@ export default function PublicPayment() {
         body: {
           oldMidtransOrderId: paymentData.midtransOrderId,
           orderIds: paymentData.orderIds,
-          totalAmount: paymentData.grandTotal,
+          totalAmount: paymentData.totalAmount,
           studentName: paymentData.studentName,
         },
       });
@@ -271,7 +269,7 @@ export default function PublicPayment() {
                 <div className="flex justify-between pt-2 border-t">
                   <span className="font-medium">Total Dibayar</span>
                   <span className="text-lg font-bold text-green-600">
-                    {formatCurrency(paymentData.grandTotal)}
+                    {formatCurrency(paymentData.totalAmount)}
                   </span>
                 </div>
               </div>
@@ -325,7 +323,7 @@ export default function PublicPayment() {
                 <div className="flex justify-between pt-2 border-t">
                   <span className="font-medium">Total</span>
                   <span className="text-lg font-bold text-primary">
-                    {formatCurrency(paymentData.grandTotal)}
+                    {formatCurrency(paymentData.totalAmount)}
                   </span>
                 </div>
               </div>
@@ -466,26 +464,12 @@ export default function PublicPayment() {
             {/* Order items breakdown */}
             <OrderItemsList items={paymentData.orderItems} />
 
-            {/* Total amount with admin fee */}
+            {/* Total amount */}
             <div className="border-t pt-4 space-y-2">
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Subtotal Laundry</span>
-                <span className="font-medium">
-                  {formatCurrency(paymentData.totalAmount)}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">
-                  Biaya Admin ({paymentData.paymentType === "qris" ? "0.7%" : "VA"})
-                </span>
-                <span className="font-medium">
-                  {formatCurrency(paymentData.adminFee)}
-                </span>
-              </div>
-              <div className="flex justify-between items-center pt-2 border-t">
+              <div className="flex justify-between items-center pt-2">
                 <span className="text-lg font-medium">Total Pembayaran</span>
                 <span className="text-2xl font-bold text-primary">
-                  {formatCurrency(paymentData.grandTotal)}
+                  {formatCurrency(paymentData.totalAmount)}
                 </span>
               </div>
             </div>

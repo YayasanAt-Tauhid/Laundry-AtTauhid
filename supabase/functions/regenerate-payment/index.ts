@@ -8,24 +8,19 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const APP_IDENTIFIER = "LAUNDRY-ATTAUHID";
 
-const PAYMENT_CONFIG = {
-  QRIS_MAX_AMOUNT: 628000,
-  QRIS_FEE_PERCENTAGE: 0.7,
-  VA_FEE_FLAT: 4400,
-} as const;
+// Threshold amount for choosing QRIS vs Virtual Account payment channels.
+// Midtrans split payment now handles any processing fees automatically,
+// so this app no longer calculates or charges an admin fee.
+const QRIS_CHANNEL_MAX_AMOUNT = 628000;
 
-function calculatePaymentMethod(baseAmount: number) {
-  if (baseAmount <= PAYMENT_CONFIG.QRIS_MAX_AMOUNT) {
+function selectPaymentMethod(baseAmount: number) {
+  if (baseAmount <= QRIS_CHANNEL_MAX_AMOUNT) {
     return {
-      adminFee: Math.ceil((baseAmount * PAYMENT_CONFIG.QRIS_FEE_PERCENTAGE) / 100),
       enabledPayments: ["other_qris"],
-      feeType: `${PAYMENT_CONFIG.QRIS_FEE_PERCENTAGE}%`,
     };
   }
   return {
-    adminFee: PAYMENT_CONFIG.VA_FEE_FLAT,
     enabledPayments: ["bank_transfer"],
-    feeType: `Rp ${PAYMENT_CONFIG.VA_FEE_FLAT.toLocaleString("id-ID")}`,
   };
 }
 
@@ -133,8 +128,7 @@ serve(async (req) => {
 
     // SECURITY: Calculate amount from DB
     const grossAmount = orders.reduce((sum: number, o: any) => sum + o.total_price, 0);
-    const { adminFee, enabledPayments, feeType } = calculatePaymentMethod(grossAmount);
-    const totalWithFee = grossAmount + adminFee;
+    const { enabledPayments } = selectPaymentMethod(grossAmount);
 
     // Generate new Midtrans order ID
     const isBulk = orderIds.length > 1;
@@ -149,7 +143,7 @@ serve(async (req) => {
     const transactionData: Record<string, any> = {
       transaction_details: {
         order_id: newMidtransOrderId,
-        gross_amount: totalWithFee,
+        gross_amount: grossAmount,
       },
       item_details: [
         {
@@ -158,12 +152,6 @@ serve(async (req) => {
           quantity: 1,
           name: itemName,
         },
-        ...(adminFee > 0 ? [{
-          id: "ADMIN_FEE",
-          price: adminFee,
-          quantity: 1,
-          name: `Biaya Admin (${feeType})`,
-        }] : []),
       ],
       enabled_payments: enabledPayments,
       custom_field1: APP_IDENTIFIER,

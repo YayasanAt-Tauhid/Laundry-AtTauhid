@@ -25,7 +25,6 @@ import {
   CreditCard,
   AlertCircle,
   CheckSquare,
-  Info,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -38,15 +37,8 @@ import {
 } from "lucide-react";
 import {
   LAUNDRY_CATEGORIES,
-  QRIS_MAX_AMOUNT,
   type OrderStatus,
 } from "@/lib/constants";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 
 interface Bill {
   id: string;
@@ -95,7 +87,6 @@ export default function Bills() {
     processBulkPayment,
     confirmPaymentManually,
     isProcessing,
-    getEstimatedAdminFee,
   } = useMidtrans();
 
   // Wadiah hook (for formatting and settings check)
@@ -746,20 +737,7 @@ export default function Bills() {
     .filter((b) => selectedBills.has(b.id))
     .reduce((sum, b) => sum + b.total_price, 0);
 
-  // Cashier doesn't pay admin fee
   const isCashier = userRole === "cashier";
-
-  // Calculate estimated admin fee for display (0 for cashier)
-  const estimatedAdminFee = isCashier
-    ? 0
-    : getEstimatedAdminFee(selectedTotal || totalUnpaid);
-  const selectedAdminFee = isCashier ? 0 : getEstimatedAdminFee(selectedTotal);
-
-  // Get payment method label based on amount
-  const getPaymentMethodLabel = (amount: number) => {
-    if (isCashier) return "Tanpa biaya admin";
-    return amount < QRIS_MAX_AMOUNT ? "QRIS (0.7%)" : "VA (Rp 4.400)";
-  };
 
   // Calculate amounts for single bill wadiah dialog
   const singleBillWadiahInfo = useMemo(() => {
@@ -771,11 +749,6 @@ export default function Bills() {
     const wadiahToUse = useWadiahBalance ? wadiahAmountToUse : 0;
     const remainingAmount = Math.max(0, totalAmount - wadiahToUse);
     const canPayFullWithWadiah = studentBalance >= totalAmount;
-    const adminFee = isCashier
-      ? 0
-      : remainingAmount > 0
-        ? getEstimatedAdminFee(remainingAmount)
-        : 0;
 
     return {
       studentBalance,
@@ -783,10 +756,9 @@ export default function Bills() {
       wadiahToUse,
       remainingAmount,
       canPayFullWithWadiah,
-      adminFee,
-      finalTotal: remainingAmount + adminFee,
+      finalTotal: remainingAmount,
     };
-  }, [selectedBillForWadiah, useWadiahBalance, wadiahAmountToUse, isCashier]);
+  }, [selectedBillForWadiah, useWadiahBalance, wadiahAmountToUse]);
 
   // Calculate amounts for bulk wadiah dialog
   const bulkWadiahInfo = useMemo(() => {
@@ -795,11 +767,6 @@ export default function Bills() {
     const wadiahToUse = bulkUseWadiah ? bulkWadiahAmount : 0;
     const remainingAmount = Math.max(0, totalAmount - wadiahToUse);
     const canPayFullWithWadiah = totalWadiahAvailable >= totalAmount;
-    const adminFee = isCashier
-      ? 0
-      : remainingAmount > 0
-        ? getEstimatedAdminFee(remainingAmount)
-        : 0;
 
     return {
       totalWadiahAvailable,
@@ -807,16 +774,9 @@ export default function Bills() {
       wadiahToUse,
       remainingAmount,
       canPayFullWithWadiah,
-      adminFee,
-      finalTotal: remainingAmount + adminFee,
+      finalTotal: remainingAmount,
     };
-  }, [
-    selectedTotal,
-    bulkUseWadiah,
-    bulkWadiahAmount,
-    isCashier,
-    selectedBills,
-  ]);
+  }, [selectedTotal, bulkUseWadiah, bulkWadiahAmount, selectedBills]);
 
   return (
     <DashboardLayout>
@@ -910,33 +870,8 @@ export default function Bills() {
                           {formatCurrency(getTotalWadiahForSelectedBills())}
                         </p>
                       )}
-                      {!isCashier && (
-                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <span>
-                            + Biaya Admin: {formatCurrency(selectedAdminFee)}
-                          </span>
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger>
-                                <Info className="h-3 w-3" />
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p className="text-xs">
-                                  {getPaymentMethodLabel(selectedTotal)}
-                                </p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        </div>
-                      )}
-                      {isCashier && (
-                        <p className="text-xs text-green-600 font-medium">
-                          Tanpa biaya admin (Kasir)
-                        </p>
-                      )}
                       <p className="text-sm font-semibold text-primary mt-1">
-                        Total:{" "}
-                        {formatCurrency(selectedTotal + selectedAdminFee)}
+                        Total: {formatCurrency(selectedTotal)}
                       </p>
                     </div>
                   )}
@@ -1023,9 +958,6 @@ export default function Bills() {
                 </h2>
                 <div className="grid gap-4">
                   {unpaidBills.map((bill) => {
-                    const adminFee = isCashier
-                      ? 0
-                      : getEstimatedAdminFee(bill.total_price);
                     const studentBalance = getStudentBalance(bill.students?.id);
                     const hasWadiah = studentBalance > 0;
 
@@ -1093,37 +1025,8 @@ export default function Bills() {
                             </div>
                             <div className="flex items-center gap-4">
                               <div className="text-right">
-                                <p className="text-lg font-semibold">
-                                  {formatCurrency(bill.total_price)}
-                                </p>
-                                {!isCashier && (
-                                  <div className="flex items-center gap-1 text-xs text-muted-foreground justify-end">
-                                    <span>
-                                      + Admin: {formatCurrency(adminFee)}
-                                    </span>
-                                    <TooltipProvider>
-                                      <Tooltip>
-                                        <TooltipTrigger>
-                                          <Info className="h-3 w-3" />
-                                        </TooltipTrigger>
-                                        <TooltipContent>
-                                          <p className="text-xs">
-                                            {getPaymentMethodLabel(
-                                              bill.total_price,
-                                            )}
-                                          </p>
-                                        </TooltipContent>
-                                      </Tooltip>
-                                    </TooltipProvider>
-                                  </div>
-                                )}
-                                {isCashier && (
-                                  <p className="text-xs text-green-600 font-medium">
-                                    Tanpa biaya admin
-                                  </p>
-                                )}
                                 <p className="text-xl font-bold text-primary mt-1">
-                                  {formatCurrency(bill.total_price + adminFee)}
+                                  {formatCurrency(bill.total_price)}
                                 </p>
                                 <StatusBadge status={bill.status} />
                               </div>
@@ -1280,11 +1183,6 @@ export default function Bills() {
                                 <p className="font-medium">
                                   {formatCurrency(bill.total_price)}
                                 </p>
-                                {bill.admin_fee > 0 && (
-                                  <p className="text-xs text-muted-foreground">
-                                    + Admin {formatCurrency(bill.admin_fee)}
-                                  </p>
-                                )}
                               </td>
                               <td className="py-4 px-4">
                                 <div className="space-y-1">
@@ -1600,24 +1498,14 @@ export default function Bills() {
                     </div>
                   )}
                   {singleBillWadiahInfo.remainingAmount > 0 && (
-                    <>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">
-                          Sisa Tagihan
-                        </span>
-                        <span>
-                          {formatCurrency(singleBillWadiahInfo.remainingAmount)}
-                        </span>
-                      </div>
-                      {!isCashier && singleBillWadiahInfo.adminFee > 0 && (
-                        <div className="flex justify-between text-sm text-muted-foreground">
-                          <span>Biaya Admin</span>
-                          <span>
-                            + {formatCurrency(singleBillWadiahInfo.adminFee)}
-                          </span>
-                        </div>
-                      )}
-                    </>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">
+                        Sisa Tagihan
+                      </span>
+                      <span>
+                        {formatCurrency(singleBillWadiahInfo.remainingAmount)}
+                      </span>
+                    </div>
                   )}
                   <div className="flex justify-between font-bold text-lg border-t pt-2">
                     <span>Total Bayar</span>
@@ -1792,22 +1680,14 @@ export default function Bills() {
                   </div>
                 )}
                 {bulkWadiahInfo.remainingAmount > 0 && (
-                  <>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">
-                        Sisa Tagihan
-                      </span>
-                      <span>
-                        {formatCurrency(bulkWadiahInfo.remainingAmount)}
-                      </span>
-                    </div>
-                    {!isCashier && bulkWadiahInfo.adminFee > 0 && (
-                      <div className="flex justify-between text-sm text-muted-foreground">
-                        <span>Biaya Admin</span>
-                        <span>+ {formatCurrency(bulkWadiahInfo.adminFee)}</span>
-                      </div>
-                    )}
-                  </>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">
+                      Sisa Tagihan
+                    </span>
+                    <span>
+                      {formatCurrency(bulkWadiahInfo.remainingAmount)}
+                    </span>
+                  </div>
                 )}
                 <div className="flex justify-between font-bold text-lg border-t pt-2">
                   <span>Total Bayar</span>

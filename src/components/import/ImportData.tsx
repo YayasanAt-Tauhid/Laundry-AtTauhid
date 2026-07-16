@@ -1210,7 +1210,6 @@ export function ImportData({
               total_price: totalPrice, // Will be overridden by backend
               yayasan_share: yayasanShare, // Will be overridden by backend
               vendor_share: vendorShare, // Will be overridden by backend
-              admin_fee: 0,
               status: status,
               laundry_date: laundryDate,
               paid_at: paidAt,

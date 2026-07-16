@@ -2,12 +2,7 @@ import { useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useMidtransConfig, getMidtransEnvironment } from "@/hooks/useMidtransConfig";
-import {
-  calculateAdminFee,
-  PAYMENT_METHODS,
-  getEnabledPaymentMethods,
-  QRIS_MAX_AMOUNT,
-} from "@/lib/constants";
+import { getEnabledPaymentMethods } from "@/lib/constants";
 
 declare global {
   interface Window {
@@ -42,8 +37,7 @@ interface PaymentParams {
   customerEmail?: string;
   customerPhone?: string;
   customerName?: string;
-  adminFee?: number;
-  isCashier?: boolean; // Flag for cashier - no admin fee
+  isCashier?: boolean;
   existingSnapToken?: string | null; // Existing snap token to reuse
   tokenUpdatedAt?: string | null; // When the token was created/updated
 }
@@ -56,8 +50,7 @@ interface BulkPaymentParams {
   customerEmail?: string;
   customerPhone?: string;
   customerName?: string;
-  adminFee?: number;
-  isCashier?: boolean; // Flag for cashier - no admin fee
+  isCashier?: boolean;
   existingSnapToken?: string | null; // Existing snap token to reuse
   tokenUpdatedAt?: string | null; // When the token was created/updated
 }
@@ -73,25 +66,6 @@ export function useMidtrans() {
   // open — Snap.js throws "Invalid state transition from PopupInView to
   // PopupInView" if pay() is invoked twice before the first popup resolves.
   const isPopupOpenRef = useRef(false);
-
-  // Calculate estimated admin fee based on amount
-  // QRIS (0.7%) for < 628,000, VA (Rp 4,400) for >= 628,000
-  const getEstimatedAdminFee = (baseAmount: number): number => {
-    return calculateAdminFee(baseAmount);
-  };
-
-  // Get actual admin fee based on payment method used
-  const getActualAdminFee = (
-    baseAmount: number,
-    paymentType: string,
-  ): number => {
-    return calculateAdminFee(baseAmount, paymentType);
-  };
-
-  // Get payment method label
-  const getPaymentMethodLabel = (amount: number): string => {
-    return amount < QRIS_MAX_AMOUNT ? "QRIS (0.7%)" : "VA (Rp 4.400)";
-  };
 
   // Check if existing snap token is still valid (not expired)
   const isTokenValid = (tokenUpdatedAt: string | null | undefined): boolean => {
@@ -109,18 +83,14 @@ export function useMidtrans() {
   // All Midtrans token creation now goes through Edge Function only.
 
   const createSnapToken = async (
-    params: PaymentParams & { adminFee: number },
+    params: PaymentParams,
   ): Promise<string | null> => {
     try {
       // Call Supabase Edge Function (secure - server key stays on server)
-      const totalWithFee = params.grossAmount + params.adminFee;
-
       console.log("=== Calling Edge Function create-midtrans-token ===");
       console.log("Request params:", {
         orderId: params.orderId,
         grossAmount: params.grossAmount,
-        adminFee: params.adminFee,
-        totalWithFee,
         studentName: params.studentName,
         category: params.category,
       });
@@ -131,7 +101,7 @@ export function useMidtrans() {
           body: {
             ...params,
             enabledPayments:
-              getEnabledPaymentMethods(totalWithFee).enabled_payments,
+              getEnabledPaymentMethods(params.grossAmount).enabled_payments,
           },
         },
       );
@@ -219,10 +189,6 @@ export function useMidtrans() {
 
     setIsProcessing(true);
 
-    // Calculate admin fee
-    const adminFee =
-      params.adminFee ?? getEstimatedAdminFee(params.grossAmount);
-
     let popupOpened = false;
 
     try {
@@ -252,7 +218,7 @@ export function useMidtrans() {
         if (params.existingSnapToken) {
           console.log("Previous token expired, creating new one");
         }
-        snapToken = await createSnapToken({ ...params, adminFee });
+        snapToken = await createSnapToken(params);
       }
 
       if (!snapToken) {
@@ -269,12 +235,6 @@ export function useMidtrans() {
           isPopupOpenRef.current = false;
           setIsProcessing(false);
 
-          // Calculate actual admin fee based on payment method used
-          const actualAdminFee = getActualAdminFee(
-            params.grossAmount,
-            result.payment_type,
-          );
-
           // Update order status to DIBAYAR with payment method
           await supabase
             .from("laundry_orders")
@@ -282,7 +242,6 @@ export function useMidtrans() {
               status: "DIBAYAR",
               paid_at: new Date().toISOString(),
               payment_method: result.payment_type,
-              admin_fee: actualAdminFee,
             })
             .eq("id", params.orderId);
 
@@ -355,24 +314,12 @@ export function useMidtrans() {
     paidBy?: string,
   ) => {
     try {
-      // Get order to calculate admin fee
-      const { data: order } = await supabase
-        .from("laundry_orders")
-        .select("total_price")
-        .eq("id", orderId)
-        .single();
-
-      // Cashier payments (both cash and bank transfer) have no admin fee
-      // Only parent online payments have admin fees
-      const adminFee = 0; // Cashier-confirmed payments always have 0 admin fee
-
       const { error } = await supabase
         .from("laundry_orders")
         .update({
           status: "DIBAYAR",
           paid_at: new Date().toISOString(),
           payment_method: isCashPayment ? "cash" : paymentMethod || "manual",
-          admin_fee: adminFee,
           paid_by: paidBy || null,
         })
         .eq("id", orderId);
@@ -397,11 +344,10 @@ export function useMidtrans() {
 
   // Create bulk snap token for multiple orders
   const createBulkSnapToken = async (
-    params: BulkPaymentParams & { adminFee: number },
+    params: BulkPaymentParams,
   ): Promise<string | null> => {
     try {
       // Call Edge Function for bulk payment (secure)
-      const totalWithFee = params.grossAmount + params.adminFee;
       const { data, error } = await supabase.functions.invoke(
         "create-midtrans-token",
         {
@@ -414,10 +360,9 @@ export function useMidtrans() {
             customerEmail: params.customerEmail,
             customerPhone: params.customerPhone,
             customerName: params.customerName,
-            adminFee: params.adminFee,
             isBulk: true,
             enabledPayments:
-              getEnabledPaymentMethods(totalWithFee).enabled_payments,
+              getEnabledPaymentMethods(params.grossAmount).enabled_payments,
           },
         },
       );
@@ -475,10 +420,6 @@ export function useMidtrans() {
 
     setIsProcessing(true);
 
-    // Calculate admin fee for bulk payment
-    const adminFee =
-      params.adminFee ?? getEstimatedAdminFee(params.grossAmount);
-
     let popupOpened = false;
 
     try {
@@ -507,7 +448,7 @@ export function useMidtrans() {
         if (params.existingSnapToken) {
           console.log("Previous token expired, creating new one");
         }
-        snapToken = await createBulkSnapToken({ ...params, adminFee });
+        snapToken = await createBulkSnapToken(params);
       }
 
       if (!snapToken) {
@@ -523,15 +464,6 @@ export function useMidtrans() {
           isPopupOpenRef.current = false;
           setIsProcessing(false);
 
-          // Calculate actual admin fee based on payment method used
-          const actualAdminFee = getActualAdminFee(
-            params.grossAmount,
-            result.payment_type,
-          );
-          const adminFeePerOrder = Math.ceil(
-            actualAdminFee / params.orderIds.length,
-          );
-
           // Update all orders status to DIBAYAR
           for (const orderId of params.orderIds) {
             await supabase
@@ -540,7 +472,6 @@ export function useMidtrans() {
                 status: "DIBAYAR",
                 paid_at: new Date().toISOString(),
                 payment_method: result.payment_type,
-                admin_fee: adminFeePerOrder,
               })
               .eq("id", orderId);
           }
@@ -609,8 +540,6 @@ export function useMidtrans() {
     processBulkPayment,
     confirmPaymentManually,
     isProcessing,
-    getEstimatedAdminFee,
-    calculateAdminFee: getActualAdminFee,
     isTokenValid, // Expose for UI to show token status
     // Midtrans config status
     isMidtransReady,
