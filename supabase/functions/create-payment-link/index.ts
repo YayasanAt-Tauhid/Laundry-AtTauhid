@@ -3,22 +3,6 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const APP_IDENTIFIER = "LAUNDRY-ATTAUHID";
 
-// Threshold amount for choosing QRIS vs Virtual Account payment channels.
-// Midtrans split payment now handles any processing fees automatically,
-// so this app no longer calculates or charges an admin fee.
-const QRIS_CHANNEL_MAX_AMOUNT = 628000;
-
-function selectPaymentMethod(baseAmount: number) {
-  if (baseAmount <= QRIS_CHANNEL_MAX_AMOUNT) {
-    return {
-      enabledPayments: ["other_qris"],
-    };
-  }
-  return {
-    enabledPayments: ["bank_transfer"],
-  };
-}
-
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -111,7 +95,6 @@ serve(async (req) => {
     }
 
     const grossAmount = orders.reduce((sum: number, o: any) => sum + o.total_price, 0);
-    const { enabledPayments } = selectPaymentMethod(grossAmount);
 
     const isBulk = orderIds.length > 1;
     const midtransOrderId = isBulk 
@@ -138,7 +121,6 @@ serve(async (req) => {
         first_name: parentName || "Orang Tua",
         phone: parentPhone || "",
       },
-      enabled_payments: enabledPayments,
       custom_field1: APP_IDENTIFIER,
       custom_field2: isBulk ? `ARREARS_BULK:${orderIds.length}` : "ARREARS_SINGLE",
       custom_field3: `STUDENT:${studentName}`,

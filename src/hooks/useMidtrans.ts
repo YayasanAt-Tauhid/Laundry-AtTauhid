@@ -2,7 +2,6 @@ import { useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useMidtransConfig, getMidtransEnvironment } from "@/hooks/useMidtransConfig";
-import { getEnabledPaymentMethods } from "@/lib/constants";
 
 declare global {
   interface Window {
@@ -98,11 +97,7 @@ export function useMidtrans() {
       const { data, error } = await supabase.functions.invoke(
         "create-midtrans-token",
         {
-          body: {
-            ...params,
-            enabledPayments:
-              getEnabledPaymentMethods(params.grossAmount).enabled_payments,
-          },
+          body: params,
         },
       );
 
@@ -361,8 +356,6 @@ export function useMidtrans() {
             customerPhone: params.customerPhone,
             customerName: params.customerName,
             isBulk: true,
-            enabledPayments:
-              getEnabledPaymentMethods(params.grossAmount).enabled_payments,
           },
         },
       );
