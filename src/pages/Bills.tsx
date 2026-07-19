@@ -46,7 +46,7 @@ interface Bill {
   weight_kg: number | null;
   item_count: number | null;
   total_price: number;
-  admin_fee: number;
+  admin_fee: number | null;
   payment_method: string | null;
   status: OrderStatus;
   created_at: string;
@@ -1235,10 +1235,10 @@ export default function Bills() {
                                         )}
 
                                         {/* Kembalian */}
-                                        {bill.change_amount > 0 && (
+                                        {(bill.change_amount ?? 0) > 0 && (
                                           <p className="text-xs text-blue-600">
                                             Kembalian:{" "}
-                                            {formatCurrency(bill.change_amount)}
+                                            {formatCurrency(bill.change_amount ?? 0)}
                                           </p>
                                         )}
                                       </>

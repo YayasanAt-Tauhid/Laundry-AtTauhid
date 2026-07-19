@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { invokeApi } from "@/lib/serverApi";
 import { useToast } from "@/hooks/use-toast";
 import { useMidtransConfig, getMidtransEnvironment } from "@/hooks/useMidtransConfig";
 
@@ -85,8 +86,8 @@ export function useMidtrans() {
     params: PaymentParams,
   ): Promise<string | null> => {
     try {
-      // Call Supabase Edge Function (secure - server key stays on server)
-      console.log("=== Calling Edge Function create-midtrans-token ===");
+      // Call server API (secure - server key stays on server)
+      console.log("=== Calling API create-midtrans-token ===");
       console.log("Request params:", {
         orderId: params.orderId,
         grossAmount: params.grossAmount,
@@ -94,14 +95,13 @@ export function useMidtrans() {
         category: params.category,
       });
 
-      const { data, error } = await supabase.functions.invoke(
-        "create-midtrans-token",
-        {
-          body: params,
-        },
-      );
+      const { data, error } = await invokeApi<{
+        token?: string;
+        error?: string;
+        code?: string;
+      }>("create-midtrans-token", params);
 
-      console.log("Edge Function response:", { data, error });
+      console.log("API response:", { data, error });
 
       // Check for online payment disabled error (comes in data when status is 403)
       if (data?.error && data?.code === "ONLINE_PAYMENT_DISABLED") {
@@ -109,26 +109,9 @@ export function useMidtrans() {
       }
 
       if (error) {
-        console.error("=== Edge Function Error Details ===");
+        console.error("=== API Error Details ===");
         console.error("Error object:", error);
         console.error("Error message:", error.message);
-        console.error("Error context:", error.context);
-
-        // Check if error context contains ONLINE_PAYMENT_DISABLED
-        try {
-          const errorBody =
-            typeof error.context === "string"
-              ? JSON.parse(error.context)
-              : error.context;
-          if (errorBody?.code === "ONLINE_PAYMENT_DISABLED") {
-            throw new Error(
-              errorBody.error ||
-                "Pembayaran online untuk parent sedang dinonaktifkan. Silakan bayar melalui kasir.",
-            );
-          }
-        } catch (parseError) {
-          // Not a JSON context, continue with normal error handling
-        }
 
         // Provide more specific error message based on error type
         let errorMessage = "Gagal membuat token pembayaran. ";
@@ -144,11 +127,9 @@ export function useMidtrans() {
         ) {
           errorMessage += "Autentikasi gagal. Pastikan Anda sudah login.";
         } else if (error.message?.includes("404")) {
-          errorMessage +=
-            "Edge Function tidak ditemukan. Pastikan sudah di-deploy.";
+          errorMessage += "API tidak ditemukan. Pastikan sudah di-deploy.";
         } else if (error.message?.includes("500")) {
-          errorMessage +=
-            "Server error. Cek logs Edge Function di Supabase Dashboard.";
+          errorMessage += "Server error. Cek logs Worker di Cloudflare Dashboard.";
         } else {
           errorMessage += `Detail: ${error.message || JSON.stringify(error)}`;
         }
@@ -342,23 +323,22 @@ export function useMidtrans() {
     params: BulkPaymentParams,
   ): Promise<string | null> => {
     try {
-      // Call Edge Function for bulk payment (secure)
-      const { data, error } = await supabase.functions.invoke(
-        "create-midtrans-token",
-        {
-          body: {
-            orderId: params.orderIds[0], // Primary order ID
-            orderIds: params.orderIds, // All order IDs for bulk
-            grossAmount: params.grossAmount,
-            studentName: params.studentNames,
-            category: "Bulk Payment",
-            customerEmail: params.customerEmail,
-            customerPhone: params.customerPhone,
-            customerName: params.customerName,
-            isBulk: true,
-          },
-        },
-      );
+      // Call server API for bulk payment (secure)
+      const { data, error } = await invokeApi<{
+        token?: string;
+        error?: string;
+        code?: string;
+      }>("create-midtrans-token", {
+        orderId: params.orderIds[0], // Primary order ID
+        orderIds: params.orderIds, // All order IDs for bulk
+        grossAmount: params.grossAmount,
+        studentName: params.studentNames,
+        category: "Bulk Payment",
+        customerEmail: params.customerEmail,
+        customerPhone: params.customerPhone,
+        customerName: params.customerName,
+        isBulk: true,
+      });
 
       // Check for online payment disabled error
       if (data?.error && data?.code === "ONLINE_PAYMENT_DISABLED") {
@@ -366,26 +346,9 @@ export function useMidtrans() {
       }
 
       if (error) {
-        console.error("Edge function error:", error);
-
-        // Check if error context contains ONLINE_PAYMENT_DISABLED
-        try {
-          const errorBody =
-            typeof error.context === "string"
-              ? JSON.parse(error.context)
-              : error.context;
-          if (errorBody?.code === "ONLINE_PAYMENT_DISABLED") {
-            throw new Error(
-              errorBody.error ||
-                "Pembayaran online untuk parent sedang dinonaktifkan. Silakan bayar melalui kasir.",
-            );
-          }
-        } catch (parseError) {
-          // Not a JSON context, continue with normal error handling
-        }
-
+        console.error("API error:", error);
         throw new Error(
-          "Gagal membuat token pembayaran bulk. Pastikan Edge Function sudah di-deploy.",
+          "Gagal membuat token pembayaran bulk. Pastikan API sudah di-deploy.",
         );
       }
 

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Loader2, MessageSquare, Copy, Check, ExternalLink } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { invokeApi } from "@/lib/serverApi";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, formatLaundryDate } from "@/utils/format";
 import type { StudentArrears } from "@/hooks/useArrearsData";
@@ -71,20 +71,22 @@ export function ArrearsMessageComposer({ student, open, onOpenChange }: Props) {
   const handleGenerateLink = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke("create-payment-link", {
-        body: {
-          studentId: student.studentId,
-          studentName: student.studentName,
-          studentClass: student.studentClass,
-          orderIds: student.orders.map((o) => o.id),
-          totalAmount: student.totalAmount,
-          parentName: student.parentName,
-          parentPhone: student.parentPhone,
-        },
+      const { data, error } = await invokeApi<{
+        order_id: string;
+        error?: string;
+      }>("create-payment-link", {
+        studentId: student.studentId,
+        studentName: student.studentName,
+        studentClass: student.studentClass,
+        orderIds: student.orders.map((o) => o.id),
+        totalAmount: student.totalAmount,
+        parentName: student.parentName,
+        parentPhone: student.parentPhone,
       });
 
-      if (error) throw error;
       if (data?.error) throw new Error(data.error);
+      if (error) throw error;
+      if (!data) throw new Error("Respons kosong dari server");
 
       // Generate in-app payment URL
       const paymentUrl = `${window.location.origin}/pay?token=${data.order_id}`;

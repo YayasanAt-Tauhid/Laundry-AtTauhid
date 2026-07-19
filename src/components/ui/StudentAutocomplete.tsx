@@ -21,7 +21,7 @@ interface Student {
   name: string;
   class: string;
   nik?: string;
-  parent_id: string;
+  parent_id: string | null;
 }
 
 interface StudentAutocompleteProps {

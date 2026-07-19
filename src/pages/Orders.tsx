@@ -30,7 +30,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { Link } from "react-router-dom";
+import { Link } from "@tanstack/react-router";
 import { format } from "date-fns";
 import { id as idLocale } from "date-fns/locale";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -294,6 +294,7 @@ export default function Orders() {
   };
 
   const handleReject = async () => {
+    if (!selectedOrder) return;
     if (!rejectionReason.trim()) {
       toast({
         variant: "destructive",
@@ -311,7 +312,7 @@ export default function Orders() {
           status: "DITOLAK_MITRA",
           rejection_reason: rejectionReason,
         })
-        .eq("id", selectedOrder?.id);
+        .eq("id", selectedOrder.id);
 
       if (error) throw error;
 

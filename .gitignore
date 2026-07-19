@@ -24,5 +24,10 @@ dist-ssr
 *.sw?
 
 # Environment Variables
-# .env
+.env
+.dev.vars
+
+# Cloudflare
+.wrangler
+worker-configuration.d.ts
 

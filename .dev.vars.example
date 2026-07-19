@@ -1,0 +1,16 @@
+# Server-side environment for local development (wrangler/vite via workerd).
+# Copy to .dev.vars and fill in. NEVER commit .dev.vars.
+#
+# In production these are set as Worker vars/secrets:
+#   wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+#   wrangler secret put MIDTRANS_SERVER_KEY
+# (non-secret values can live in wrangler.jsonc "vars")
+
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+MIDTRANS_SERVER_KEY=SB-Mid-server-xxxxxxxx
+MIDTRANS_CLIENT_KEY=SB-Mid-client-xxxxxxxx
+MIDTRANS_IS_PRODUCTION=false
+# Optional: per-transaction webhook override (leave empty to use the
+# Payment Notification URL configured in the Midtrans dashboard)
+# MIDTRANS_NOTIFICATION_URL=https://laundry-attauhid.your-subdomain.workers.dev/api/midtrans-webhook

@@ -16,14 +16,18 @@ Aplikasi manajemen laundry untuk sekolah yang dikembangkan oleh Yayasan At-Tauhi
 
 ## Teknologi
 
-Proyek ini dibangun dengan:
+Proyek ini dibangun dengan (v2.0 — migrasi ke TanStack Start + Cloudflare Workers):
 
+- 🚀 **TanStack Start** - Full-stack React framework (routing + server routes)
+- ☁️ **Cloudflare Workers** - Hosting & API (menggantikan Supabase Edge Functions)
 - ⚡ **Vite** - Build tool yang cepat
 - 📘 **TypeScript** - Type-safe JavaScript
 - ⚛️ **React** - UI Library
 - 🎨 **shadcn/ui** - Komponen UI modern
 - 🎯 **Tailwind CSS** - Utility-first CSS framework
-- 🗄️ **Supabase** - Backend as a Service (Database, Auth, Storage)
+- 🗄️ **Supabase** - Database & Auth (edge functions sudah dipindah ke server routes)
+
+📖 Panduan deploy + limit free plan Cloudflare: [docs/CLOUDFLARE_DEPLOYMENT.md](docs/CLOUDFLARE_DEPLOYMENT.md)
 
 ## Memulai Pengembangan
 
@@ -39,11 +43,19 @@ cd Laundry-AtTauhid
 # Install dependencies
 npm install
 
+# Siapkan environment
+cp .env.example .env            # variabel client (VITE_*)
+cp .dev.vars.example .dev.vars  # variabel server (Supabase service key, Midtrans)
+
 # Jalankan development server
 npm run dev
 ```
 
-Aplikasi akan berjalan di `http://localhost:5173`
+Deploy ke Cloudflare Workers:
+
+```sh
+npm run deploy
+```
 
 ## Struktur Proyek
 
@@ -58,7 +70,10 @@ src/
 ├── hooks/          # Custom React hooks
 ├── integrations/   # Integrasi Supabase
 ├── lib/            # Utilitas dan konstanta
-└── pages/          # Halaman aplikasi
+├── pages/          # Halaman aplikasi
+├── routes/         # Route TanStack (halaman + /api server routes)
+├── server/         # Utilitas server (Supabase admin, Midtrans, auth)
+└── server.ts       # Entry Cloudflare Worker (fetch + cron keep-alive)
 ```
 
 ## Role Pengguna

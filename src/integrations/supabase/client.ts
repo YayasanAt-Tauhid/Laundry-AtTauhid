@@ -9,14 +9,23 @@ const SUPABASE_KEY = isProd
   ? import.meta.env.VITE_SUPABASE_ANON_KEY_PROD
   : import.meta.env.VITE_SUPABASE_ANON_KEY_DEV
 
-if (!SUPABASE_URL || !SUPABASE_KEY) {
+// Only hard-fail in the browser. During SSR/prerender of the SPA shell this
+// module may be imported without VITE env vars (e.g. CI builds) — the shell
+// never talks to Supabase, so placeholders are safe there.
+if ((!SUPABASE_URL || !SUPABASE_KEY) && typeof window !== 'undefined') {
   throw new Error('Supabase ENV missing')
 }
 
-export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_KEY, {
-  auth: {
-    storage: localStorage,
-    persistSession: true,
-    autoRefreshToken: true,
+// storage is guarded so this module can be imported during SSR/prerender of
+// the SPA shell, where localStorage does not exist.
+export const supabase = createClient<Database>(
+  SUPABASE_URL || 'https://placeholder.supabase.co',
+  SUPABASE_KEY || 'placeholder-anon-key',
+  {
+    auth: {
+      storage: typeof window !== "undefined" ? window.localStorage : undefined,
+      persistSession: true,
+      autoRefreshToken: true,
+    }
   }
-});
+);

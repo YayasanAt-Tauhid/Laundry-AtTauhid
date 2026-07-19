@@ -179,7 +179,7 @@ export default function Students() {
       try {
         const { data, error: rpcError } = await supabase.rpc("check_nik_available", {
           p_nik: nik.trim(),
-          p_exclude_id: excludeId || null,
+          p_exclude_id: excludeId || undefined,
         });
 
         console.log("[Claim Debug] RPC result:", data, "Error:", rpcError);
@@ -376,7 +376,7 @@ export default function Students() {
         {
           p_request_id: requestId,
           p_decision: decision,
-          p_rejection_reason: reason || null,
+          p_rejection_reason: reason || undefined,
         },
       );
 

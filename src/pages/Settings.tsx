@@ -199,6 +199,8 @@ export default function Settings() {
       return;
     }
 
+    if (!settingsId) return;
+
     setSavingConfig(true);
     try {
       const { error } = await supabase

@@ -1,0 +1,28 @@
+{
+  "name": "At-Tauhid Laundry",
+  "short_name": "ATL Laundry",
+  "description": "Sistem Manajemen Laundry Sekolah At-Tauhid",
+  "theme_color": "#1a7a4c",
+  "background_color": "#ffffff",
+  "display": "standalone",
+  "start_url": "/",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

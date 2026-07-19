@@ -1,28 +1,5 @@
 project_id = "mxspjofeyklodydnergm"
 
-[functions.create-midtrans-token]
-verify_jwt = false
-
-[functions.create-payment-link]
-verify_jwt = false
-
-[functions.get-payment-info]
-verify_jwt = false
-
-[functions.regenerate-payment]
-verify_jwt = false
-
-[functions.midtrans-webhook]
-verify_jwt = false
-
-[functions.midtrans-config]
-verify_jwt = false
-
-[functions.keep-alive]
-verify_jwt = false
-
-[functions.import-parents]
-verify_jwt = false
-
-[functions.import-parents-link]
-verify_jwt = false
+# Edge functions have been migrated to TanStack Start server routes running on
+# Cloudflare Workers (src/routes/api/*). This directory now only tracks the
+# database migrations. See docs/CLOUDFLARE_DEPLOYMENT.md.

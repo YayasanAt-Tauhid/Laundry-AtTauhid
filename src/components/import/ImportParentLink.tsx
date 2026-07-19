@@ -31,8 +31,8 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { MAX_PARENTS_PER_REQUEST } from "@/lib/import-limits";
 import {
   Upload,
   FileSpreadsheet,
@@ -363,48 +363,66 @@ export function ImportParentLink({
         throw new Error("Tidak ada data valid untuk diimport");
       }
 
-      setProgress(30);
+      setProgress(20);
 
-      // Use fetch directly to call edge function with proper headers
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      // The API runs on Cloudflare Workers, which limits how many Supabase
+      // calls a single request may make — so the import is sent in chunks.
+      const allResults: ImportResult[] = [];
+      const totalSummary: ImportSummary = {
+        total_parents: parentData.length,
+        parents_success: 0,
+        parents_failed: 0,
+        students_linked: 0,
+        students_not_found: 0,
+        students_already_linked: 0,
+      };
 
-      const response = await fetch(
-        `${supabaseUrl}/functions/v1/import-parents-link`,
-        {
+      for (let i = 0; i < parentData.length; i += MAX_PARENTS_PER_REQUEST) {
+        const chunk = parentData.slice(i, i + MAX_PARENTS_PER_REQUEST);
+
+        const response = await fetch("/api/import-parents-link", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${session?.access_token}`,
-            apikey: supabaseAnonKey,
           },
           body: JSON.stringify({
-            parents: parentData,
+            parents: chunk,
             overwrite_parent: overwriteParent,
           }),
-        },
-      );
+        });
 
-      setProgress(90);
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || `HTTP error ${response.status}`);
+        }
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP error ${response.status}`);
+        const data = await response.json();
+
+        if (!data.success && data.error) {
+          throw new Error(data.error);
+        }
+
+        allResults.push(...(data.results as ImportResult[]));
+        totalSummary.parents_success += data.summary.parents_success;
+        totalSummary.parents_failed += data.summary.parents_failed;
+        totalSummary.students_linked += data.summary.students_linked;
+        totalSummary.students_not_found += data.summary.students_not_found;
+        totalSummary.students_already_linked +=
+          data.summary.students_already_linked;
+
+        setProgress(
+          20 + Math.round(((i + chunk.length) / parentData.length) * 75),
+        );
       }
 
-      const data = await response.json();
-
-      if (!data.success && data.error) {
-        throw new Error(data.error);
-      }
-
-      setResults(data.results);
-      setSummary(data.summary);
+      setResults(allResults);
+      setSummary(totalSummary);
       setProgress(100);
 
       toast({
         title: "Import Selesai",
-        description: data.message,
+        description: `Import selesai: ${totalSummary.parents_success} orang tua berhasil, ${totalSummary.parents_failed} gagal, ${totalSummary.students_linked} siswa dihubungkan`,
       });
 
       if (onImportComplete) {

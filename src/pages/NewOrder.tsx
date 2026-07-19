@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useAuth } from "@/hooks/useAuth";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import {
@@ -40,7 +40,7 @@ interface Student {
   name: string;
   class: string;
   nik: string;
-  parent_id: string;
+  parent_id: string | null;
 }
 
 interface Partner {
@@ -59,6 +59,7 @@ export default function NewOrder() {
   const { user } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
+  const router = useRouter();
 
   const [students, setStudents] = useState<Student[]>([]);
   const [partners, setPartners] = useState<Partner[]>([]);
@@ -284,7 +285,7 @@ export default function NewOrder() {
         description: "Order laundry berhasil dibuat",
       });
 
-      navigate("/orders");
+      navigate({ to: "/orders" });
     } catch (error: unknown) {
       console.error("Error creating order:", error);
       toast({
@@ -321,7 +322,7 @@ export default function NewOrder() {
       <div className="max-w-2xl mx-auto space-y-6 animate-fade-in">
         {/* Header */}
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+          <Button variant="ghost" size="icon" onClick={() => router.history.back()}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
@@ -564,7 +565,7 @@ export default function NewOrder() {
                   type="button"
                   variant="outline"
                   className="flex-1"
-                  onClick={() => navigate(-1)}
+                  onClick={() => router.history.back()}
                 >
                   Batal
                 </Button>

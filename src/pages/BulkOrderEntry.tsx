@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "@tanstack/react-router";
 import { useAuth } from "@/hooks/useAuth";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -411,7 +411,7 @@ export default function BulkOrderEntry() {
 
         {/* Action Buttons */}
         <div className="flex items-center justify-between gap-4 pb-6">
-          <Button variant="outline" onClick={() => navigate("/orders")}>
+          <Button variant="outline" onClick={() => navigate({ to: "/orders" })}>
             Kembali ke Daftar Order
           </Button>
 

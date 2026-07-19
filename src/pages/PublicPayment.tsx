@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { useSearchParams } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { useNavigate, useSearch } from "@tanstack/react-router";
+import { invokeApi } from "@/lib/serverApi";
 import { useMidtransConfig } from "@/hooks/useMidtransConfig";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -96,7 +96,8 @@ function OrderItemsList({ items }: { items?: OrderItem[] }) {
 }
 
 export default function PublicPayment() {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const search = useSearch({ from: "/pay" });
+  const navigate = useNavigate();
   const { isReady: isMidtransReady, isLoading: isMidtransLoading } = useMidtransConfig();
   
   const [paymentData, setPaymentData] = useState<PaymentData | null>(null);
@@ -107,7 +108,7 @@ export default function PublicPayment() {
   const [paymentMessage, setPaymentMessage] = useState("");
 
   // Get payment token from URL
-  const paymentToken = searchParams.get("token");
+  const paymentToken = search.token ?? null;
 
   useEffect(() => {
     async function loadPaymentData() {
@@ -118,12 +119,12 @@ export default function PublicPayment() {
       }
 
       try {
-        const { data, error: fnError } = await supabase.functions.invoke("get-payment-info", {
-          body: { token: paymentToken },
-        });
+        const { data, error: fnError } = await invokeApi<
+          PaymentData & { error?: string }
+        >("get-payment-info", { token: paymentToken });
 
-        if (fnError) throw fnError;
         if (data?.error) throw new Error(data.error);
+        if (fnError) throw fnError;
 
         setPaymentData(data);
       } catch (err) {
@@ -142,20 +143,23 @@ export default function PublicPayment() {
 
     setRegenerating(true);
     try {
-      const { data, error } = await supabase.functions.invoke("regenerate-payment", {
-        body: {
-          oldMidtransOrderId: paymentData.midtransOrderId,
-          orderIds: paymentData.orderIds,
-          totalAmount: paymentData.totalAmount,
-          studentName: paymentData.studentName,
-        },
+      const { data, error } = await invokeApi<{
+        token: string;
+        order_id: string;
+        error?: string;
+      }>("regenerate-payment", {
+        oldMidtransOrderId: paymentData.midtransOrderId,
+        orderIds: paymentData.orderIds,
+        totalAmount: paymentData.totalAmount,
+        studentName: paymentData.studentName,
       });
 
-      if (error) throw error;
       if (data?.error) throw new Error(data.error);
+      if (error) throw error;
+      if (!data) throw new Error("Respons kosong dari server");
 
       // Update URL with new token and reload data
-      setSearchParams({ token: data.order_id });
+      navigate({ to: "/pay", search: { token: data.order_id }, replace: true });
       setPaymentData({
         ...paymentData,
         expired: false,

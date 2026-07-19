@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import {
   Shirt,
@@ -67,10 +67,10 @@ export default function LandingPage() {
             <span className="text-lg font-bold text-foreground">At-Tauhid Laundry</span>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={() => navigate("/login")}>
+            <Button variant="ghost" size="sm" onClick={() => navigate({ to: "/login" })}>
               Masuk
             </Button>
-            <Button size="sm" onClick={() => navigate("/login")}>
+            <Button size="sm" onClick={() => navigate({ to: "/login" })}>
               Daftar <ChevronRight className="ml-1 h-4 w-4" />
             </Button>
           </div>
@@ -106,7 +106,7 @@ export default function LandingPage() {
             </p>
 
             <div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
-              <Button size="lg" className="px-8 text-base" onClick={() => navigate("/login")}>
+              <Button size="lg" className="px-8 text-base" onClick={() => navigate({ to: "/login" })}>
                 Mulai Sekarang <ArrowRight className="ml-2 h-5 w-5" />
               </Button>
               <Button variant="outline" size="lg" className="px-8 text-base" onClick={() => {
@@ -236,7 +236,7 @@ export default function LandingPage() {
               size="lg"
               variant="secondary"
               className="px-8 text-base font-semibold"
-              onClick={() => navigate("/login")}
+              onClick={() => navigate({ to: "/login" })}
             >
               Daftar Gratis <ArrowRight className="ml-2 h-5 w-5" />
             </Button>

@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "@tanstack/react-router";
 import { useAuth } from "@/hooks/useAuth";
 import LandingPage from "./LandingPage";
 import { Loader2 } from "lucide-react";
@@ -11,9 +11,9 @@ const Index = () => {
   useEffect(() => {
     if (!loading && user) {
       if (userRole === "staff") {
-        navigate("/orders/bulk");
+        navigate({ to: "/orders/bulk" });
       } else {
-        navigate("/dashboard");
+        navigate({ to: "/dashboard" });
       }
     }
   }, [user, userRole, loading, navigate]);

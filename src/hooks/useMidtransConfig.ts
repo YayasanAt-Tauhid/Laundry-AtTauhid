@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { invokeApi } from "@/lib/serverApi";
 
 interface MidtransConfig {
   clientKey: string;
@@ -28,13 +28,13 @@ async function loadMidtransConfig(): Promise<MidtransConfig> {
   }
 
   loadPromise = (async () => {
-    const { data, error } = await supabase.functions.invoke("midtrans-config");
+    const { data, error } = await invokeApi<MidtransConfig>("midtrans-config");
 
-    if (error) {
-      throw new Error(error.message || "Failed to load Midtrans config");
+    if (error || !data) {
+      throw new Error(error?.message || "Failed to load Midtrans config");
     }
 
-    cachedConfig = data as MidtransConfig;
+    cachedConfig = data;
     return cachedConfig;
   })();
 

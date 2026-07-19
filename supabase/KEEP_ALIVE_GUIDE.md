@@ -1,3 +1,12 @@
+> ## ⚠️ CATATAN MIGRASI (v2.0 — Juli 2026)
+>
+> Keep-alive sudah **dipindah ke Cloudflare Workers Cron Trigger**
+> (`wrangler.jsonc` → `crons: ["0 2 * * *"]`, handler di `src/server.ts`).
+> Endpoint manual: `GET /api/keep-alive`. Cron eksternal (cron-job.org, GitHub
+> Actions) tidak diperlukan lagi. Detail: `docs/CLOUDFLARE_DEPLOYMENT.md`.
+> Dokumen di bawah ini adalah dokumentasi LAMA (Supabase) dan dipertahankan
+> sebagai referensi historis.
+
 # 🔄 Supabase Keep-Alive System
 
 Sistem untuk mencegah database Supabase di-pause secara otomatis dengan melakukan query ringan setiap 3 hari.

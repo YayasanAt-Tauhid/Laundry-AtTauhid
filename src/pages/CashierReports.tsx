@@ -56,7 +56,7 @@ export default function CashierReports() {
     getDateRange,
   } = useCashierReport({
     userId: user?.id,
-    userRole,
+    userRole: userRole ?? undefined,
     selectedCashier,
     period,
     customStartDate,

@@ -1,3 +1,14 @@
+> ## ⚠️ CATATAN MIGRASI (v2.0 — Juli 2026)
+>
+> Webhook sudah **dipindah dari Supabase Edge Function ke Cloudflare Workers**
+> (TanStack Start server route `src/routes/api/midtrans-webhook.ts`).
+> Endpoint baru: `https://<worker-domain>/api/midtrans-webhook`.
+> Untuk akun Midtrans multi-app, gunakan var `MIDTRANS_NOTIFICATION_URL`
+> (header `X-Override-Notification` per transaksi) agar webhook lama untuk
+> aplikasi lain tetap jalan. Detail: `docs/CLOUDFLARE_DEPLOYMENT.md`.
+> Dokumen di bawah ini adalah dokumentasi LAMA (Supabase) dan dipertahankan
+> sebagai referensi historis.
+
 # Setup Unified Midtrans Webhook
 
 Dokumentasi untuk mengkonfigurasi **1 webhook** yang mendukung **2 aplikasi**:
