@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useMidtrans } from "@/hooks/useMidtrans";
 import { useWadiah } from "@/hooks/useWadiah";
@@ -81,7 +81,7 @@ const PAGE_SIZE = 20;
 
 export default function Bills() {
   const { toast } = useToast();
-  const { profile, userRole } = useAuth();
+  const { profile, userRole, refreshProfile } = useAuth();
   const {
     processPayment,
     processBulkPayment,
@@ -120,6 +120,70 @@ export default function Bills() {
   const [showBulkWadiahDialog, setShowBulkWadiahDialog] = useState(false);
   const [bulkUseWadiah, setBulkUseWadiah] = useState(true);
   const [bulkWadiahAmount, setBulkWadiahAmount] = useState<number>(0);
+
+  // Complete Profile Dialog State (required before Midtrans payment)
+  const [showCompleteProfileDialog, setShowCompleteProfileDialog] =
+    useState(false);
+  const [profileNameInput, setProfileNameInput] = useState("");
+  const [profilePhoneInput, setProfilePhoneInput] = useState("");
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const pendingPaymentActionRef = useRef<(() => void) | null>(null);
+
+  // Midtrans requires a real name & phone number, otherwise the bank
+  // transfer/VA channel gets auto-denied by Midtrans's fraud detection.
+  const ensureProfileComplete = (onComplete: () => void) => {
+    if (profile?.full_name?.trim() && profile?.phone?.trim()) {
+      onComplete();
+      return;
+    }
+
+    pendingPaymentActionRef.current = onComplete;
+    setProfileNameInput(profile?.full_name || "");
+    setProfilePhoneInput(profile?.phone || "");
+    setShowCompleteProfileDialog(true);
+  };
+
+  const handleSaveProfileAndContinue = async () => {
+    if (!profile?.id) return;
+
+    if (!profileNameInput.trim() || !profilePhoneInput.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Data belum lengkap",
+        description: "Nama dan nomor HP wajib diisi untuk melanjutkan pembayaran",
+      });
+      return;
+    }
+
+    setIsSavingProfile(true);
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          full_name: profileNameInput.trim(),
+          phone: profilePhoneInput.trim(),
+        })
+        .eq("id", profile.id);
+
+      if (error) throw error;
+
+      await refreshProfile();
+      setShowCompleteProfileDialog(false);
+
+      const action = pendingPaymentActionRef.current;
+      pendingPaymentActionRef.current = null;
+      action?.();
+    } catch (error) {
+      console.error("Error updating profile:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Gagal menyimpan data profil, silakan coba lagi",
+      });
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
 
   useEffect(() => {
     fetchBills();
@@ -282,20 +346,26 @@ export default function Bills() {
       return;
     }
 
+    const wadiahToUse = useWadiahBalance ? wadiahAmountToUse : 0;
+    const remainingAmount = bill.total_price - wadiahToUse;
+
+    if (wadiahToUse <= 0) {
+      // No wadiah to use, just go to Midtrans
+      setShowWadiahPaymentDialog(false);
+      setSelectedBillForWadiah(null);
+      handlePayment(bill);
+      return;
+    }
+
+    if (remainingAmount > 0 && !(profile?.full_name?.trim() && profile?.phone?.trim())) {
+      // Remaining amount will go through Midtrans - require complete profile first
+      ensureProfileComplete(() => handleWadiahPayment());
+      return;
+    }
+
     setIsProcessingWadiah(true);
 
     try {
-      const wadiahToUse = useWadiahBalance ? wadiahAmountToUse : 0;
-      const remainingAmount = bill.total_price - wadiahToUse;
-
-      if (wadiahToUse <= 0) {
-        // No wadiah to use, just go to Midtrans
-        setShowWadiahPaymentDialog(false);
-        setSelectedBillForWadiah(null);
-        handlePayment(bill);
-        return;
-      }
-
       // Use secure database function for wadiah payment
       const { data, error } = await supabase.rpc(
         "parent_pay_order_with_wadiah",
@@ -410,6 +480,31 @@ export default function Bills() {
   const handleBulkWadiahPayment = async () => {
     if (selectedBills.size === 0) return;
 
+    const selectedBillsListPreview = unpaidBills.filter((b) =>
+      selectedBills.has(b.id),
+    );
+    const totalAmountPreview = selectedBillsListPreview.reduce(
+      (sum, b) => sum + b.total_price,
+      0,
+    );
+    const wadiahToUsePreview = bulkUseWadiah ? bulkWadiahAmount : 0;
+
+    if (wadiahToUsePreview <= 0) {
+      // No wadiah to use, just go to bulk Midtrans payment
+      setShowBulkWadiahDialog(false);
+      handleBulkPayment();
+      return;
+    }
+
+    if (
+      totalAmountPreview - wadiahToUsePreview > 0 &&
+      !(profile?.full_name?.trim() && profile?.phone?.trim())
+    ) {
+      // Remaining amount will go through Midtrans - require complete profile first
+      ensureProfileComplete(() => handleBulkWadiahPayment());
+      return;
+    }
+
     setIsProcessingWadiah(true);
 
     try {
@@ -422,13 +517,6 @@ export default function Bills() {
       );
       const wadiahToUse = bulkUseWadiah ? bulkWadiahAmount : 0;
       const remainingAmount = totalAmount - wadiahToUse;
-
-      if (wadiahToUse <= 0) {
-        // No wadiah to use, just go to bulk Midtrans payment
-        setShowBulkWadiahDialog(false);
-        handleBulkPayment();
-        return;
-      }
 
       // Group bills by student for wadiah deduction
       const billsByStudent = new Map<string, Bill[]>();
@@ -575,36 +663,39 @@ export default function Bills() {
   };
 
   const handlePayment = async (bill: Bill) => {
-    setPayingBillId(bill.id);
+    ensureProfileComplete(async () => {
+      setPayingBillId(bill.id);
 
-    await processPayment(
-      {
-        orderId: bill.id,
-        grossAmount: bill.total_price,
-        studentName: bill.students?.name || "Unknown",
-        category:
-          LAUNDRY_CATEGORIES[bill.category as keyof typeof LAUNDRY_CATEGORIES]
-            ?.label || bill.category,
-        customerEmail: profile?.email || undefined,
-        customerPhone: profile?.phone || undefined,
-        customerName: profile?.full_name || undefined,
-        // Pass existing snap token for reuse if not expired
-        existingSnapToken: bill.midtrans_snap_token,
-        tokenUpdatedAt: bill.updated_at,
-      },
-      () => {
-        // onSuccess
-        fetchBills();
-        setPayingBillId(null);
-      },
-      () => {
-        // onPending
-        fetchBills();
-        setPayingBillId(null);
-      },
-    );
+      await processPayment(
+        {
+          orderId: bill.id,
+          grossAmount: bill.total_price,
+          studentName: bill.students?.name || "Unknown",
+          category:
+            LAUNDRY_CATEGORIES[
+              bill.category as keyof typeof LAUNDRY_CATEGORIES
+            ]?.label || bill.category,
+          customerEmail: profile?.email || undefined,
+          customerPhone: profile?.phone || undefined,
+          customerName: profile?.full_name || undefined,
+          // Pass existing snap token for reuse if not expired
+          existingSnapToken: bill.midtrans_snap_token,
+          tokenUpdatedAt: bill.updated_at,
+        },
+        () => {
+          // onSuccess
+          fetchBills();
+          setPayingBillId(null);
+        },
+        () => {
+          // onPending
+          fetchBills();
+          setPayingBillId(null);
+        },
+      );
 
-    setPayingBillId(null);
+      setPayingBillId(null);
+    });
   };
 
   // Handle bulk payment for selected bills (without wadiah)
@@ -618,46 +709,48 @@ export default function Bills() {
       return;
     }
 
-    setIsPayingAll(true);
+    ensureProfileComplete(async () => {
+      setIsPayingAll(true);
 
-    const selectedBillsList = unpaidBills.filter((b) =>
-      selectedBills.has(b.id),
-    );
-    const totalAmount = selectedBillsList.reduce(
-      (sum, b) => sum + b.total_price,
-      0,
-    );
-    const orderIds = selectedBillsList.map((b) => b.id);
+      const selectedBillsList = unpaidBills.filter((b) =>
+        selectedBills.has(b.id),
+      );
+      const totalAmount = selectedBillsList.reduce(
+        (sum, b) => sum + b.total_price,
+        0,
+      );
+      const orderIds = selectedBillsList.map((b) => b.id);
 
-    // Create description for bulk payment
-    const studentNames = [
-      ...new Set(selectedBillsList.map((b) => b.students?.name)),
-    ].join(", ");
+      // Create description for bulk payment
+      const studentNames = [
+        ...new Set(selectedBillsList.map((b) => b.students?.name)),
+      ].join(", ");
 
-    await processBulkPayment(
-      {
-        orderIds: orderIds,
-        grossAmount: totalAmount,
-        description: `Pembayaran ${selectedBillsList.length} tagihan laundry`,
-        studentNames: studentNames,
-        customerEmail: profile?.email || undefined,
-        customerPhone: profile?.phone || undefined,
-        customerName: profile?.full_name || undefined,
-      },
-      () => {
-        // onSuccess
-        fetchBills();
-        setSelectedBills(new Set());
-        setIsPayingAll(false);
-      },
-      () => {
-        // onPending
-        fetchBills();
-        setIsPayingAll(false);
-      },
-    );
+      await processBulkPayment(
+        {
+          orderIds: orderIds,
+          grossAmount: totalAmount,
+          description: `Pembayaran ${selectedBillsList.length} tagihan laundry`,
+          studentNames: studentNames,
+          customerEmail: profile?.email || undefined,
+          customerPhone: profile?.phone || undefined,
+          customerName: profile?.full_name || undefined,
+        },
+        () => {
+          // onSuccess
+          fetchBills();
+          setSelectedBills(new Set());
+          setIsPayingAll(false);
+        },
+        () => {
+          // onPending
+          fetchBills();
+          setIsPayingAll(false);
+        },
+      );
 
-    setIsPayingAll(false);
+      setIsPayingAll(false);
+    });
   };
 
   // Toggle single bill selection
@@ -1730,6 +1823,67 @@ export default function Bills() {
                   : bulkWadiahInfo.remainingAmount === 0
                     ? "Bayar Semua dengan Wadiah"
                     : "Lanjutkan Pembayaran"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Complete Profile Dialog - required before Midtrans payment */}
+        <Dialog
+          open={showCompleteProfileDialog}
+          onOpenChange={(open) => {
+            if (!isSavingProfile) setShowCompleteProfileDialog(open);
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Lengkapi Data Diri</DialogTitle>
+              <DialogDescription>
+                Nama dan nomor HP wajib diisi sebelum melanjutkan pembayaran
+                online. Data ini dikirim ke Midtrans agar transaksi tidak
+                ditolak sistem deteksi fraud.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label htmlFor="profile-name">Nama Lengkap</Label>
+                <Input
+                  id="profile-name"
+                  value={profileNameInput}
+                  onChange={(e) => setProfileNameInput(e.target.value)}
+                  placeholder="Nama lengkap"
+                  disabled={isSavingProfile}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="profile-phone">Nomor HP</Label>
+                <Input
+                  id="profile-phone"
+                  value={profilePhoneInput}
+                  onChange={(e) => setProfilePhoneInput(e.target.value)}
+                  placeholder="08xxxxxxxxxx"
+                  disabled={isSavingProfile}
+                />
+              </div>
+            </div>
+
+            <DialogFooter className="gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowCompleteProfileDialog(false)}
+                disabled={isSavingProfile}
+              >
+                Batal
+              </Button>
+              <Button
+                onClick={handleSaveProfileAndContinue}
+                disabled={isSavingProfile}
+              >
+                {isSavingProfile ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : null}
+                {isSavingProfile ? "Menyimpan..." : "Simpan & Lanjutkan"}
               </Button>
             </DialogFooter>
           </DialogContent>
