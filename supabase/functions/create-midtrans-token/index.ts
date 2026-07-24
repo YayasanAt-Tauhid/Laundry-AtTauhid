@@ -15,6 +15,15 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const APP_IDENTIFIER = "LAUNDRY-ATTAUHID";
 
+// All payment channels offered together; the customer chooses on the Snap page.
+const ENABLED_PAYMENTS = [
+  "other_qris",
+  "gopay",
+  "shopeepay",
+  "bank_transfer",
+  "credit_card",
+];
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -207,6 +216,8 @@ serve(async (req) => {
       custom_field1: APP_IDENTIFIER,
       custom_field2: isBulk ? `BULK:${orderIdsToUpdate.length}` : "SINGLE",
       custom_field3: category,
+      enabled_payments: ENABLED_PAYMENTS,
+      qris: { acquirer: "gopay" },
     };
 
     // Call Midtrans Snap API
