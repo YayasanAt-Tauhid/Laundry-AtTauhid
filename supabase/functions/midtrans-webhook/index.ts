@@ -191,11 +191,16 @@ serve(async (req) => {
         );
       }
 
-      // Build update data
+      // Build update data.
+      // IMPORTANT: pending notifications must never downgrade a paid order.
+      // For pending we intentionally do not write the status column.
       const updateData: Record<string, any> = {
-        status: orderStatus,
         payment_method: mapPaymentMethod(notification.payment_type),
       };
+
+      if (transactionStatus !== "pending") {
+        updateData.status = orderStatus;
+      }
 
       if (orderStatus === "DIBAYAR") {
         updateData.paid_at =
@@ -217,12 +222,20 @@ serve(async (req) => {
               : "Pembayaran ditolak - silakan bayar ulang";
       }
 
-      // Update all orders
+      // Update all orders.
+      // The status guard is part of the UPDATE itself, so stale pending/cancel/
+      // deny/expire webhooks cannot overwrite DIBAYAR even under concurrency.
       const orderIds = orders.map((o: any) => o.id);
-      const { error: updateError } = await supabaseClient
+      let updateQuery = supabaseClient
         .from("laundry_orders")
         .update(updateData)
         .in("id", orderIds);
+
+      if (orderStatus !== "DIBAYAR") {
+        updateQuery = updateQuery.neq("status", "DIBAYAR");
+      }
+
+      const { error: updateError } = await updateQuery;
 
       if (updateError) {
         console.error("Failed to update bulk orders:", updateError);
@@ -277,11 +290,16 @@ serve(async (req) => {
         );
       }
 
-      // Build update data
+      // Build update data.
+      // IMPORTANT: pending notifications must never downgrade a paid order.
+      // For pending we intentionally do not write the status column.
       const updateData: Record<string, any> = {
-        status: orderStatus,
         payment_method: mapPaymentMethod(notification.payment_type),
       };
+
+      if (transactionStatus !== "pending") {
+        updateData.status = orderStatus;
+      }
 
       if (orderStatus === "DIBAYAR") {
         updateData.paid_at =
@@ -300,11 +318,19 @@ serve(async (req) => {
               : "Pembayaran ditolak - silakan bayar ulang";
       }
 
-      // Update order
-      const { error: updateError } = await supabaseClient
+      // Update order.
+      // Keep the guard in SQL so this remains safe when Midtrans notifications
+      // are processed concurrently or arrive out of order.
+      let updateQuery = supabaseClient
         .from("laundry_orders")
         .update(updateData)
         .eq("id", existingOrder.id);
+
+      if (orderStatus !== "DIBAYAR") {
+        updateQuery = updateQuery.neq("status", "DIBAYAR");
+      }
+
+      const { error: updateError } = await updateQuery;
 
       if (updateError) {
         console.error("Failed to update order:", updateError);
