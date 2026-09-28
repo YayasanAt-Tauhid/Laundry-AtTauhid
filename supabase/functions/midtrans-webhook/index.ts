@@ -44,6 +44,24 @@ function mapPaymentMethod(paymentType: string): string {
   return mapping[paymentType] || paymentType;
 }
 
+
+function midtransTimeToIso(value?: string): string | null {
+  if (!value) return null;
+
+  // Midtrans transaction timestamps are GMT+7 (WIB) and may arrive without
+  // an explicit offset. Attach +07:00 before converting to ISO/UTC.
+  const normalized = value.includes("T") ? value : value.replace(" ", "T");
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(normalized);
+  const date = new Date(hasTimezone ? normalized : `${normalized}+07:00`);
+
+  if (Number.isNaN(date.getTime())) {
+    console.error("Invalid Midtrans timestamp:", value);
+    return null;
+  }
+
+  return date.toISOString();
+}
+
 serve(async (req) => {
   // CORS preflight
   if (req.method === "OPTIONS") {
@@ -203,8 +221,9 @@ serve(async (req) => {
       }
 
       if (orderStatus === "DIBAYAR") {
-        updateData.paid_at =
-          notification.settlement_time || notification.transaction_time;
+        updateData.paid_at = midtransTimeToIso(
+          notification.settlement_time || notification.transaction_time,
+        );
         // Distribute paid amount across orders
         updateData.paid_amount = Math.floor(
           parseFloat(grossAmount) / orders.length,
@@ -302,8 +321,9 @@ serve(async (req) => {
       }
 
       if (orderStatus === "DIBAYAR") {
-        updateData.paid_at =
-          notification.settlement_time || notification.transaction_time;
+        updateData.paid_at = midtransTimeToIso(
+          notification.settlement_time || notification.transaction_time,
+        );
         updateData.paid_amount = parseFloat(grossAmount);
       }
 
