@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import {
   Table,
   TableBody,
@@ -228,6 +229,9 @@ export function StaffBillsTable({ bills, isLoading }: StaffBillsTableProps) {
                   <p className="font-medium">{selectedBill.notes}</p>
                 </div>
               )}
+              {["DIBAYAR", "SELESAI"].includes(selectedBill.status) && <Button variant="outline" asChild>
+                <Link to={`/order-corrections?order=${selectedBill.id}`}>Ajukan koreksi tagihan lunas</Link>
+              </Button>}
             </div>
           )}
         </DialogContent>

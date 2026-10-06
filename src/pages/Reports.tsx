@@ -39,6 +39,7 @@ import { MidtransPaymentReport } from "@/components/reports/MidtransPaymentRepor
 import { StudentArrearsReport } from "@/components/reports/StudentArrearsReport";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LAUNDRY_CATEGORIES } from "@/lib/constants";
+import { correctionReportEntries } from "@/lib/correction-report";
 import {
   Dialog,
   DialogContent,
@@ -89,6 +90,7 @@ interface VendorShareData {
 }
 
 interface BillReportOrder {
+  is_correction?: boolean;
   id: string;
   laundry_date: string;
   category: string;
@@ -249,8 +251,11 @@ export default function Reports() {
       if (error) throw error;
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const orders: BillReportOrder[] = (data || []).map((order: any) => ({
+      const adjustments = await correctionReportEntries({ mode: "bills", start: billStartDate, end: billEndDate,
+        partnerId: selectedPartnerId === "all" ? undefined : selectedPartnerId });
+      const orders: BillReportOrder[] = [...(data || []), ...adjustments].map((order: any) => ({
         id: order.id,
+        is_correction: order.is_correction === true,
         laundry_date: order.laundry_date,
         category: order.category,
         weight_kg: order.weight_kg,
@@ -273,11 +278,11 @@ export default function Reports() {
       );
 
       setBillReportData({
-        totalOrders: orders.length,
+        totalOrders: orders.filter(o => !o.is_correction || o.total_price > 0).length,
         totalAmount: orders.reduce((sum, o) => sum + o.total_price, 0),
         totalVendorShare: orders.reduce((sum, o) => sum + o.vendor_share, 0),
         totalYayasanShare: orders.reduce((sum, o) => sum + o.yayasan_share, 0),
-        paidOrders: paidOrders.length,
+        paidOrders: paidOrders.filter(o => !o.is_correction || o.total_price > 0).length,
         paidAmount: paidOrders.reduce((sum, o) => sum + o.total_price, 0),
         unpaidOrders: unpaidOrders.length,
         unpaidAmount: unpaidOrders.reduce((sum, o) => sum + o.total_price, 0),
@@ -364,10 +369,13 @@ export default function Reports() {
 
       if (error) throw error;
 
-      const orders = data || [];
+      const adjustments = await correctionReportEntries({ mode: "revenue", dateType: dateFilterType,
+        start: dateRange?.start, end: dateRange?.end });
+      const orders = [...(data || []), ...adjustments];
 
       // Calculate totals
-      const totalOrders = orders.length;
+      const isAdjustment = (order: typeof orders[number]) => "is_correction" in order && order.is_correction === true;
+      const totalOrders = orders.filter(o => !isAdjustment(o)).length;
       const totalRevenue = orders.reduce(
         (sum, o) => sum + (o.total_price || 0),
         0,
@@ -391,7 +399,7 @@ export default function Reports() {
         if (!ordersByCategory[cat]) {
           ordersByCategory[cat] = { count: 0, revenue: 0 };
         }
-        ordersByCategory[cat].count++;
+        if (!isAdjustment(order)) ordersByCategory[cat].count++;
         ordersByCategory[cat].revenue += order.total_price || 0;
       });
 
@@ -403,7 +411,7 @@ export default function Reports() {
         if (!ordersByClass[cls]) {
           ordersByClass[cls] = { count: 0, revenue: 0 };
         }
-        ordersByClass[cls].count++;
+        if (!isAdjustment(order)) ordersByClass[cls].count++;
         ordersByClass[cls].revenue += order.total_price || 0;
       });
 
@@ -417,7 +425,7 @@ export default function Reports() {
         if (!ordersByPartner[partner]) {
           ordersByPartner[partner] = { count: 0, revenue: 0 };
         }
-        ordersByPartner[partner].count++;
+        if (!isAdjustment(order)) ordersByPartner[partner].count++;
         ordersByPartner[partner].revenue += order.total_price || 0;
       });
 
@@ -440,7 +448,7 @@ export default function Reports() {
         }
 
         const vendor = vendorMap.get(partnerId)!;
-        vendor.totalOrders++;
+        if (!isAdjustment(order)) vendor.totalOrders++;
         vendor.totalRevenue += order.total_price || 0;
         vendor.vendorShare += order.vendor_share || 0;
         vendor.yayasanShare += order.yayasan_share || 0;
@@ -1130,6 +1138,7 @@ export default function Reports() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <p className="text-sm text-muted-foreground mb-4">Ringkasan, tagihan, dan bagi hasil mencakup baris koreksi yang disetujui. Pengurangan dicatat saat persetujuan; tambahan pendapatan saat selisih dibayar. Baris [Koreksi] tidak mewakili laundry baru. Riwayat Midtrans dan kuitansi menampilkan pembayaran asli. Pengembalian yang belum selesai dapat dilihat di menu Koreksi Tagihan.</p>
           <TabsList className="grid w-full grid-cols-4 lg:w-[800px]">
             <TabsTrigger value="summary" className="flex items-center gap-2">
               <TrendingUp className="h-4 w-4" />

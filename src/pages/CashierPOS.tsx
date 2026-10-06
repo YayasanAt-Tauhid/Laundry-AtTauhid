@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from "react";
+import { CorrectionNotice } from "@/components/CorrectionNotice";
 import { useAuth } from "@/hooks/useAuth";
 import { useMidtrans } from "@/hooks/useMidtrans";
 import { useWadiah } from "@/hooks/useWadiah";
@@ -905,6 +906,7 @@ export default function CashierPOS() {
 
   return (
     <DashboardLayout>
+      <CorrectionNotice />
       <div className="space-y-6 animate-fade-in">
         {/* Header */}
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">

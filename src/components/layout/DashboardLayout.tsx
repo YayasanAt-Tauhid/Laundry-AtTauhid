@@ -100,6 +100,12 @@ const navItems: NavItem[] = [
     roles: ["admin"],
   },
   {
+    label: "Koreksi Tagihan",
+    href: "/order-corrections",
+    icon: <Receipt className="h-5 w-5" />,
+    roles: ["admin", "staff", "cashier", "parent", "partner"],
+  },
+  {
     label: "Laporan Kasir",
     href: "/cashier-reports",
     icon: <FileText className="h-5 w-5" />,

@@ -14,6 +14,7 @@ const Login = lazy(() => import("./pages/Login"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Students = lazy(() => import("./pages/Students"));
 const Orders = lazy(() => import("./pages/Orders"));
+const OrderCorrections = lazy(() => import("./pages/OrderCorrections"));
 const NewOrder = lazy(() => import("./pages/NewOrder"));
 const BulkOrderEntry = lazy(() => import("./pages/BulkOrderEntry"));
 const Bills = lazy(() => import("./pages/Bills"));
@@ -111,6 +112,7 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      <Route path="/order-corrections" element={<ProtectedRoute allowedRoles={["admin", "staff", "cashier", "parent", "partner"]}><OrderCorrections /></ProtectedRoute>} />
       <Route
         path="/orders/bulk"
         element={

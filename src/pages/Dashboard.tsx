@@ -18,6 +18,7 @@ import {
   Plus,
 } from "lucide-react";
 import { LAUNDRY_CATEGORIES, type OrderStatus } from "@/lib/constants";
+import { correctionReportEntries } from "@/lib/correction-report";
 
 interface DashboardStats {
   totalOrders: number;
@@ -86,9 +87,12 @@ export default function Dashboard() {
       const completedOrders = orders.filter((o) =>
         ["DIBAYAR", "SELESAI"].includes(o.status),
       ).length;
+      const adjustments = await correctionReportEntries({ mode: "revenue" });
+      const visibleOrderIds = new Set(orders.map(o => o.id));
       const totalRevenue = orders
         .filter((o) => ["DIBAYAR", "SELESAI"].includes(o.status))
-        .reduce((sum, o) => sum + (o.total_price || 0), 0);
+        .reduce((sum, o) => sum + (o.total_price || 0), 0)
+        + adjustments.filter(c => visibleOrderIds.has(c.correction_of)).reduce((sum, c) => sum + c.total_price, 0);
 
       // Fetch students count for parent
       let studentsCount = 0;
