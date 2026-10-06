@@ -14,7 +14,7 @@ create type public.wadiah_transaction_type as enum('deposit','payment','change_d
 create table public.user_roles(user_id uuid references auth.users(id),role public.app_role);
 create table public.students(id uuid primary key default gen_random_uuid(),parent_id uuid references auth.users(id),
   name text,class text,nik text,is_active boolean default true);
-create table public.laundry_partners(id uuid primary key default gen_random_uuid(),user_id uuid references auth.users(id),name text);
+create table public.laundry_partners(id uuid primary key default gen_random_uuid(),user_id uuid references auth.users(id),name text,is_active boolean default true);
 create table public.laundry_prices(category public.laundry_category,price_per_unit integer);
 create table public.holiday_settings(kiloan_yayasan_per_kg integer,kiloan_vendor_per_kg integer,
   non_kiloan_yayasan_percent numeric,non_kiloan_vendor_percent numeric);
@@ -24,7 +24,8 @@ create table public.laundry_orders(id uuid primary key default gen_random_uuid()
   status public.order_status default 'DRAFT',laundry_date date default current_date,notes text,
   paid_at timestamptz,paid_amount integer,change_amount integer default 0,admin_fee numeric default 0,
   wadiah_used integer default 0,rounding_applied integer default 0,payment_method text,midtrans_order_id text,
-  midtrans_snap_token text,created_at timestamptz default now(),updated_at timestamptz default now());
+  midtrans_snap_token text,paid_by uuid,approved_by uuid,approved_at timestamptz,rejection_reason text,
+  created_at timestamptz default now(),updated_at timestamptz default now());
 create table public.student_wadiah_balance(id uuid primary key default gen_random_uuid(),student_id uuid unique references public.students(id),
   balance integer default 0,total_deposited integer default 0,total_used integer default 0,total_sedekah integer default 0,
   last_transaction_at timestamptz,updated_at timestamptz default now());

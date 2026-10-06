@@ -5,6 +5,7 @@
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { attachPaymentSnapshot } from "../_shared/attach-payment.ts";
 
 const APP_IDENTIFIER = "LAUNDRY-ATTAUHID";
 
@@ -42,7 +43,7 @@ serve(async (req) => {
     // =====================================================
     const { data: orders, error: ordersError } = await supabase
       .from("laundry_orders")
-      .select("id, status, midtrans_order_id, total_price, student_id")
+      .select("id, status, midtrans_order_id, total_price, student_id, updated_at")
       .in("id", orderIds);
 
     if (ordersError || !orders || orders.length === 0) {
@@ -110,6 +111,10 @@ serve(async (req) => {
       );
     }
 
+    if (orders.some(o => !["DISETUJUI_MITRA", "MENUNGGU_PEMBAYARAN"].includes(o.status))) {
+      throw new Error("Tagihan harus disetujui mitra sebelum pembayaran.");
+    }
+
     // SECURITY: Calculate amount from DB
     const grossAmount = orders.reduce((sum: number, o: any) => sum + o.total_price, 0);
 
@@ -166,21 +171,7 @@ serve(async (req) => {
       );
     }
 
-    // Update orders with new midtrans info
-    for (const oid of orderIds) {
-      const { error: updateError } = await supabase
-        .from("laundry_orders")
-        .update({
-          midtrans_order_id: newMidtransOrderId,
-          midtrans_snap_token: midtransResult.token,
-          status: "MENUNGGU_PEMBAYARAN",
-        })
-        .eq("id", oid);
-
-      if (updateError) {
-        console.error(`Failed to update order ${oid}:`, updateError);
-      }
-    }
+    await attachPaymentSnapshot(supabase, orders, newMidtransOrderId, midtransResult.token);
 
     console.log(`Regenerated payment: ${oldMidtransOrderId} -> ${newMidtransOrderId}, student=${studentIds[0]}`);
 
