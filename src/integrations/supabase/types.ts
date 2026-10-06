@@ -1,5 +1,10 @@
 import type { OrderCorrection } from "@/types/order-corrections";
 import type { UnpaidOrderRevision } from "@/types/unpaid-order-revisions";
+import type {
+  PartnerSettlementAccount,
+  PartnerSettlement,
+  PartnerSettlementLine,
+} from "@/types/partner-settlements";
 
 export type Json =
   | string
@@ -17,6 +22,31 @@ export type Database = {
   }
   public: {
     Tables: {
+      partner_settlement_accounts: {
+        Row: PartnerSettlementAccount
+        Insert: Partial<PartnerSettlementAccount>
+        Update: Partial<PartnerSettlementAccount>
+        Relationships: [
+          { foreignKeyName: "partner_settlement_accounts_partner_id_fkey"; columns: ["partner_id"]; isOneToOne: true; referencedRelation: "laundry_partners"; referencedColumns: ["id"] }
+        ]
+      }
+      partner_settlements: {
+        Row: PartnerSettlement
+        Insert: Partial<PartnerSettlement>
+        Update: Partial<PartnerSettlement>
+        Relationships: [
+          { foreignKeyName: "partner_settlements_partner_id_fkey"; columns: ["partner_id"]; isOneToOne: false; referencedRelation: "laundry_partners"; referencedColumns: ["id"] }
+        ]
+      }
+      partner_settlement_lines: {
+        Row: PartnerSettlementLine
+        Insert: Partial<PartnerSettlementLine>
+        Update: Partial<PartnerSettlementLine>
+        Relationships: [
+          { foreignKeyName: "partner_settlement_lines_settlement_id_fkey"; columns: ["settlement_id"]; isOneToOne: false; referencedRelation: "partner_settlements"; referencedColumns: ["id"] },
+          { foreignKeyName: "partner_settlement_lines_partner_id_fkey"; columns: ["partner_id"]; isOneToOne: false; referencedRelation: "laundry_partners"; referencedColumns: ["id"] }
+        ]
+      }
       unpaid_order_revisions: {
         Row: UnpaidOrderRevision
         Insert: Partial<UnpaidOrderRevision>
@@ -705,6 +735,26 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      activate_partner_settlement: {
+        Args: { p_partner_id: string; p_start_date: string; p_note: string }
+        Returns: string
+      }
+      preview_partner_settlement: {
+        Args: { p_partner_id: string; p_cutoff_date: string }
+        Returns: {
+          active: boolean
+          start_date: string | null
+          order_share_total: number
+          correction_adjustment: number
+          net_amount: number
+          order_count: number
+          correction_count: number
+        }[]
+      }
+      record_partner_settlement: {
+        Args: { p_partner_id: string; p_cutoff_date: string; p_method: string; p_reference: string; p_note?: string | null }
+        Returns: string
+      }
       correct_unpaid_order: {
         Args: { p_order_id: string; p_expected_updated_at: string; p_student_id: string; p_partner_id: string; p_category: Database["public"]["Enums"]["laundry_category"]; p_quantity: number; p_laundry_date: string; p_notes: string | null; p_reason: string }
         Returns: string
