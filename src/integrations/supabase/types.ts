@@ -1,3 +1,5 @@
+import type { OrderCorrection } from "@/types/order-corrections";
+
 export type Json =
   | string
   | number
@@ -14,6 +16,15 @@ export type Database = {
   }
   public: {
     Tables: {
+      order_corrections: {
+        Row: OrderCorrection
+        Insert: Partial<OrderCorrection>
+        Update: Partial<OrderCorrection>
+        Relationships: [
+          { foreignKeyName: "order_corrections_student_id_fkey"; columns: ["student_id"]; isOneToOne: false; referencedRelation: "students"; referencedColumns: ["id"] },
+          { foreignKeyName: "order_corrections_order_id_fkey"; columns: ["order_id"]; isOneToOne: false; referencedRelation: "laundry_orders"; referencedColumns: ["id"] }
+        ]
+      }
       _keep_alive_log: {
         Row: {
           id: number
@@ -683,6 +694,18 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      request_order_correction: {
+        Args: { p_order_id: string; p_kind: string; p_corrected_total: number; p_reason: string; p_replacement_student_id?: string | null }
+        Returns: string
+      }
+      review_order_correction: {
+        Args: { p_correction_id: string; p_approve: boolean; p_review_note: string; p_verification_reference?: string | null; p_refund_amount?: number | null; p_recipient_reference?: string | null }
+        Returns: string
+      }
+      settle_order_correction: {
+        Args: { p_correction_id: string; p_method: string; p_reference: string; p_customer_consent?: boolean }
+        Returns: string
+      }
       calculate_rounded_amount: {
         Args: {
           p_amount: number

@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from "react";
+import { CorrectionNotice } from "@/components/CorrectionNotice";
 import { useAuth } from "@/hooks/useAuth";
 import { useMidtrans } from "@/hooks/useMidtrans";
 import { useWadiah } from "@/hooks/useWadiah";
@@ -873,6 +874,7 @@ export default function Bills() {
 
   return (
     <DashboardLayout>
+      <CorrectionNotice />
       <div className="space-y-6 animate-fade-in">
         {/* Header */}
         <div>
