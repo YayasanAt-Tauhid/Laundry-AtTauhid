@@ -19,6 +19,7 @@ const NewOrder = lazy(() => import("./pages/NewOrder"));
 const BulkOrderEntry = lazy(() => import("./pages/BulkOrderEntry"));
 const Bills = lazy(() => import("./pages/Bills"));
 const Partners = lazy(() => import("./pages/Partners"));
+const PartnerSettlements = lazy(() => import("./pages/PartnerSettlements"));
 const Reports = lazy(() => import("./pages/Reports"));
 const CashierReports = lazy(() => import("./pages/CashierReports"));
 const CashierPOS = lazy(() => import("./pages/CashierPOS"));
@@ -150,6 +151,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute allowedRoles={["admin"]}>
             <Reports />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/partner-settlements"
+        element={
+          <ProtectedRoute allowedRoles={["admin", "cashier", "partner"]}>
+            <PartnerSettlements />
           </ProtectedRoute>
         }
       />

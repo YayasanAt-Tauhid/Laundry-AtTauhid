@@ -21,6 +21,7 @@ import {
   Upload,
   PiggyBank,
   MessageSquareText,
+  HandCoins,
 } from "lucide-react";
 import { USER_ROLES, type UserRole } from "@/lib/constants";
 
@@ -98,6 +99,12 @@ const navItems: NavItem[] = [
     href: "/reports",
     icon: <FileText className="h-5 w-5" />,
     roles: ["admin"],
+  },
+  {
+    label: "Settlement Mitra",
+    href: "/partner-settlements",
+    icon: <HandCoins className="h-5 w-5" />,
+    roles: ["admin", "cashier", "partner"],
   },
   {
     label: "Koreksi Tagihan",
