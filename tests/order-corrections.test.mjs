@@ -16,6 +16,8 @@ test('paid order correction lifecycle, financial integrity and access control', 
     on public.laundry_orders for each row execute function public.validate_and_calculate_order_price()`);
   const migration = await readFile(new URL('../supabase/migrations/20261006070356_paid_order_corrections.sql', import.meta.url), 'utf8');
   await db.exec(migration);
+  const quantityMigration = await readFile(new URL('../supabase/migrations/20261006104031_paid_order_quantity_correction.sql', import.meta.url), 'utf8');
+  await db.exec(quantityMigration);
   const uid = n => `00000000-0000-0000-0000-${String(n).padStart(12,'0')}`;
   const admin = uid(1), staff = uid(2), cashier = uid(3), parent = uid(4), otherParent = uid(5), partner = uid(6);
   const student = uid(11), otherStudent = uid(12), inactiveStudent = uid(13), partnerId = uid(20);
@@ -35,6 +37,7 @@ test('paid order correction lifecycle, financial integrity and access control', 
   const newOrder = async (status='DIBAYAR') => asOwner(async () => (await row(`insert into laundry_orders(student_id,partner_id,staff_id,category,weight_kg,price_per_unit,total_price,yayasan_share,vendor_share,status,paid_at,payment_method,paid_amount,midtrans_snap_token)
     values ($1,$2,$3,'kiloan',10,7000,70000,20000,50000,$4,now(),'cash',70000,'PRIVATE_TOKEN') returning id`,[student,partnerId,staff,status])).id);
   const request = async (orderId,total=56000,kind='price',replacement=null) => (await row(`select request_order_correction($1,$2,$3,'Salah input berat laundry',$4) as id`,[orderId,kind,total,replacement])).id;
+  const requestQuantity = async (orderId,quantity=8) => (await row(`select request_order_quantity_correction($1,$2,'Berat laundry yang tercatat salah') as id`,[orderId,quantity])).id;
   const approve = async (id,refund=14000) => row(`select review_order_correction($1,true,'Kuitansi sudah diverifikasi','KWT-2026-0001',$2,'Pembayar awal terverifikasi')`,[id,refund]);
   const settle = async (id,method='wadiah',consent=true) => row(`select settle_order_correction($1,$2,'BUKTI-2026-0001',$3)`,[id,method,consent]);
   const mustFail = (fn, message) => assert.rejects(fn, message);
@@ -52,6 +55,31 @@ test('paid order correction lifecycle, financial integrity and access control', 
     assert.equal(c.delta,-14000); assert.equal(c.yayasan_delta,-4000); assert.equal(c.vendor_delta,-10000);
     assert.equal(c.original_snapshot.midtrans_snap_token,undefined); assert.equal(c.status,'pending');
     assert.equal(c.settlement_status,'not_ready');
+  });
+  await t.test('quantity correction derives amount from the historical unit price and keeps the paid order immutable',async () => {
+    const id=await newOrder();
+    await asOwner(() => db.exec(`update laundry_prices set price_per_unit=9000 where category='kiloan'`));
+    await actor(staff); const c=await requestQuantity(id,8);
+    const correctionRow=await row('select * from order_corrections where id=$1',[c]);
+    assert.equal(Number(correctionRow.corrected_quantity),8);
+    assert.equal(correctionRow.corrected_total,56000);
+    assert.equal(correctionRow.delta,-14000);
+    assert.equal(correctionRow.yayasan_delta,-4000);
+    assert.equal(correctionRow.vendor_delta,-10000);
+    await asOwner(async () => {
+      const order=await row('select * from laundry_orders where id=$1',[id]);
+      assert.equal(Number(order.weight_kg),10);
+      assert.equal(order.price_per_unit,7000);
+      assert.equal(order.total_price,70000);
+      assert.equal(order.paid_amount,70000);
+      await db.exec(`update laundry_prices set price_per_unit=7000 where category='kiloan'`);
+    });
+  });
+  await t.test('quantity correction rejects unchanged or invalid quantities and unauthorized callers',async () => {
+    const id=await newOrder();
+    await actor(parent); await mustFail(() => requestQuantity(id,8), /Tidak berwenang/);
+    await actor(staff); await mustFail(() => requestQuantity(id,10), /sama dengan tagihan asli/);
+    await mustFail(() => requestQuantity(id,0), /tidak valid/);
   });
   await t.test('direct financial writes and duplicate requests are blocked',async () => {
     await actor(admin); await mustFail(() => request(originalOrder), /sudah memiliki/);
