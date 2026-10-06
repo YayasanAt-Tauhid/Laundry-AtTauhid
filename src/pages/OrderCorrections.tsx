@@ -21,10 +21,16 @@ import { LAUNDRY_CATEGORIES } from "@/lib/constants";
 import { correctionKindLabels, correctionStatusLabels, rupiah, type OrderCorrection } from "@/types/order-corrections";
 
 type Student = { id: string; name: string; class: string; nik: string; parent_id: string | null };
-type PaidOrder = { id: string; student_id: string; total_price: number; category: string; laundry_date: string };
+type PaidOrder = {
+  id: string; student_id: string; total_price: number; category: string; laundry_date: string;
+  weight_kg: number | null; item_count: number | null; price_per_unit: number;
+};
 type CorrectionRow = OrderCorrection & { students: { name: string; class: string; nik: string } | null };
 const PAGE_SIZE = 25;
 const timestamp = (value: string | null) => value ? new Date(value).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }) : "—";
+const paidOrderQuantity = (order: PaidOrder) => order.category === "kiloan" ? order.weight_kg : order.item_count;
+const quantityText = (category: string, value: number | null | undefined) =>
+  value == null ? "—" : `${new Intl.NumberFormat("id-ID", { maximumFractionDigits: 3 }).format(value)} ${category === "kiloan" ? "kg" : "pcs"}`;
 
 export default function OrderCorrections() {
   const [params] = useSearchParams();
@@ -47,6 +53,7 @@ function PaidOrderCorrections() {
   const [orderId, setOrderId] = useState(params.get("order") ?? "");
   const [kind, setKind] = useState<OrderCorrection["kind"]>("price");
   const [amount, setAmount] = useState("");
+  const [quantity, setQuantity] = useState("");
   const [reason, setReason] = useState("");
   const [replacementStudent, setReplacementStudent] = useState("");
   const [rows, setRows] = useState<CorrectionRow[]>([]);
@@ -64,7 +71,11 @@ function PaidOrderCorrections() {
   const [reference, setReference] = useState("");
   const [consent, setConsent] = useState(false);
   const selectedOrder = orders.find(o => o.id === orderId);
-  const correctedTotal = kind === "price" ? Number(amount) : 0;
+  const correctedQuantity = Number(quantity);
+  const originalQuantity = selectedOrder ? paidOrderQuantity(selectedOrder) : null;
+  const correctedTotal = kind === "price" ? Number(amount)
+    : kind === "quantity" && selectedOrder && Number.isFinite(correctedQuantity)
+      ? Math.round(correctedQuantity * selectedOrder.price_per_unit) : 0;
   const delta = selectedOrder ? correctedTotal - selectedOrder.total_price : 0;
   const errorMessage = (error: unknown) => error instanceof Error ? error.message
     : typeof error === "object" && error && "message" in error ? String(error.message) : "Terjadi kesalahan";
@@ -102,7 +113,7 @@ function PaidOrderCorrections() {
   useEffect(() => {
     setOrders([]);
     if (!studentId || !canRequest) return;
-    void supabase.from("laundry_orders").select("id,student_id,total_price,category,laundry_date")
+    void supabase.from("laundry_orders").select("id,student_id,total_price,category,laundry_date,weight_kg,item_count,price_per_unit")
       .eq("student_id", studentId).in("status", ["DIBAYAR", "SELESAI"]).order("laundry_date", { ascending: false })
       .then(({ data, error }) => {
         if (error) toast({ variant: "destructive", title: "Gagal memuat tagihan lunas", description: error.message });
@@ -122,11 +133,16 @@ function PaidOrderCorrections() {
     } finally { setBusy(false); }
   };
   const request = async () => {
-    const success = await act(() => supabase.rpc("request_order_correction", {
-      p_order_id: orderId, p_kind: kind, p_corrected_total: correctedTotal, p_reason: reason.trim(),
-      p_replacement_student_id: kind === "wrong_student" ? replacementStudent : null,
-    }), "Pengajuan tersimpan. Menunggu tinjauan admin.");
-    if (success) { setReason(""); setAmount(""); setOrderId(""); }
+    const action = kind === "quantity"
+      ? () => supabase.rpc("request_order_quantity_correction", {
+          p_order_id: orderId, p_corrected_quantity: correctedQuantity, p_reason: reason.trim(),
+        })
+      : () => supabase.rpc("request_order_correction", {
+          p_order_id: orderId, p_kind: kind, p_corrected_total: correctedTotal, p_reason: reason.trim(),
+          p_replacement_student_id: kind === "wrong_student" ? replacementStudent : null,
+        });
+    const success = await act(action, "Pengajuan tersimpan. Menunggu tinjauan admin.");
+    if (success) { setReason(""); setAmount(""); setQuantity(""); setOrderId(""); }
   };
   const openDetail = (row: CorrectionRow) => {
     setDetail(row); setReviewNote(""); setVerification(""); setRefund(String(Math.max(0, -row.delta)));
@@ -140,8 +156,14 @@ function PaidOrderCorrections() {
   const settle = () => act(() => supabase.rpc("settle_order_correction", {
     p_correction_id: detail!.id, p_method: method, p_reference: reference, p_customer_consent: consent,
   }), "Penyelesaian selisih tercatat.");
+  const validQuantity = kind !== "quantity" || (
+    quantity.trim() !== "" && Number.isFinite(correctedQuantity) && correctedQuantity > 0 && correctedQuantity <= 100000
+    && (selectedOrder?.category === "kiloan" || Number.isInteger(correctedQuantity))
+    && correctedQuantity !== originalQuantity && Number.isSafeInteger(correctedTotal) && correctedTotal > 0
+  );
   const validRequest = !!selectedOrder && reason.trim().length >= 10 && correctedTotal !== selectedOrder.total_price
     && (kind !== "price" || (amount.trim() !== "" && Number.isSafeInteger(correctedTotal) && correctedTotal > 0 && correctedTotal <= 2147483647))
+    && validQuantity
     && (kind !== "wrong_student" || (!!replacementStudent && replacementStudent !== studentId));
   const validReview = reviewNote.trim().length >= 10 && verification.trim().length >= 5
     && (!detail || detail.delta >= 0 || (refund.trim() !== "" && Number.isSafeInteger(Number(refund))
@@ -176,11 +198,18 @@ function PaidOrderCorrections() {
           <SelectContent>{Object.entries(correctionKindLabels).map(([key, label]) => <SelectItem key={key} value={key}>{label}</SelectItem>)}</SelectContent></Select>
         {kind === "price" && <div className="space-y-2"><Label htmlFor="corrected-total">Nominal laundry yang benar (tanpa biaya pembayaran)</Label>
           <Input id="corrected-total" type="number" min={1} step={1} value={amount} onChange={e => setAmount(e.target.value)} /></div>}
+        {kind === "quantity" && selectedOrder && <div className="space-y-2">
+          <Label htmlFor="corrected-quantity">{selectedOrder.category === "kiloan" ? "Berat yang benar (kg)" : "Jumlah yang benar (pcs)"}</Label>
+          <Input id="corrected-quantity" type="number" min={selectedOrder.category === "kiloan" ? 0.01 : 1}
+            step={selectedOrder.category === "kiloan" ? 0.01 : 1} value={quantity} onChange={e => setQuantity(e.target.value)} />
+          <p className="text-sm text-muted-foreground">Data asli: {quantityText(selectedOrder.category, originalQuantity)} · Tarif pada tagihan asli: {rupiah(selectedOrder.price_per_unit)}/{selectedOrder.category === "kiloan" ? "kg" : "pcs"}. Nominal koreksi dihitung otomatis.</p>
+        </div>}
         {kind === "wrong_student" && <div className="space-y-2"><Label>Siswa yang seharusnya ditagih</Label>
           <StudentAutocomplete students={students.filter(s => s.id !== studentId).map(s => ({ ...s, parent_id: s.parent_id ?? "" }))} value={replacementStudent} onValueChange={setReplacementStudent} />
           <p className="text-sm text-muted-foreground">Setelah disetujui, tagihan pengganti mengikuti tarif saat ini dan persetujuan mitra. Uang pembayar awal diselesaikan terpisah.</p></div>}
         <Label htmlFor="correction-reason">Alasan dan rincian kesalahan (minimal 10 karakter)</Label><Textarea id="correction-reason" maxLength={2000} value={reason} onChange={e => setReason(e.target.value)} />
         {selectedOrder && <div className="rounded-lg bg-muted p-3 text-sm space-y-1"><p>Nominal asli: <strong>{rupiah(selectedOrder.total_price)}</strong></p>
+          {kind === "quantity" && <p>Berat/jumlah: <strong>{quantityText(selectedOrder.category, originalQuantity)} → {quantityText(selectedOrder.category, Number.isFinite(correctedQuantity) ? correctedQuantity : null)}</strong></p>}
           <p>Setelah koreksi: <strong>{rupiah(correctedTotal)}</strong></p><p>{delta < 0 ? "Kelebihan nominal" : "Tagihan tambahan"}: <strong>{rupiah(Math.abs(delta))}</strong></p>
           {delta < 0 && <p>Jumlah uang yang dikembalikan ditentukan admin setelah memeriksa kuitansi, pembulatan, biaya pembayaran, dan kembalian.</p>}</div>}
         <Button onClick={() => void request()} disabled={busy || !validRequest}>{busy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Ajukan koreksi</Button>
@@ -195,6 +224,7 @@ function PaidOrderCorrections() {
             <div className="flex flex-wrap justify-between gap-2"><strong>{row.students?.name ?? "Siswa"} · {row.students?.class}</strong><Badge variant="outline">{correctionStatusLabels[row.status]}</Badge></div>
             <p className="text-sm">{correctionKindLabels[row.kind]} · {timestamp(row.requested_at)} · {row.id.slice(0, 8)}</p>
             <p>{rupiah(row.original_total)} → {rupiah(row.corrected_total)}</p>
+            {row.kind === "quantity" && <p className="text-sm text-muted-foreground">Berat/jumlah: {quantityText(String(row.original_snapshot.category ?? ""), Number(row.original_snapshot.weight_kg ?? row.original_snapshot.item_count))} → {quantityText(String(row.original_snapshot.category ?? ""), row.corrected_quantity)}</p>}
             {row.status === "approved" && <p className="text-sm font-medium">{row.delta < 0 ? "Pengembalian" : "Pembayaran tambahan"}: {rupiah(row.settlement_due ?? 0)} · {row.settlement_status === "settled" ? "Selesai" : "Belum diselesaikan"}</p>}
             {userRole === "parent" && row.status === "approved" && row.settlement_status === "pending" && <p className="text-sm text-muted-foreground">Hubungi kasir untuk penyelesaian selisih. Pembayaran tambahan pada halaman ini diproses melalui kasir.</p>}
             <Button variant="outline" size="sm" onClick={() => openDetail(row)}>Detail / tindak lanjut</Button>
@@ -211,6 +241,7 @@ function PaidOrderCorrections() {
           <p>Siswa: {detail.students?.name} · {detail.students?.nik} · {detail.students?.class}</p>
           <p>{correctionKindLabels[detail.kind]} · {correctionStatusLabels[detail.status]}</p><p className="whitespace-pre-wrap">Alasan: {detail.reason}</p>
           <p>Nominal asli {rupiah(detail.original_total)} → {rupiah(detail.corrected_total)} (selisih {rupiah(detail.delta)})</p>
+          {detail.kind === "quantity" && <p>Berat/jumlah asli {quantityText(String(detail.original_snapshot.category ?? ""), Number(detail.original_snapshot.weight_kg ?? detail.original_snapshot.item_count))} → {quantityText(String(detail.original_snapshot.category ?? ""), detail.corrected_quantity)}</p>}
           <p>Penyesuaian yayasan: {rupiah(detail.yayasan_delta)} · Mitra: {rupiah(detail.vendor_delta)}</p>
           <p>Pembayaran asli: {String(detail.original_snapshot.payment_method ?? "—")} · {String(detail.original_snapshot.midtrans_order_id ?? "—")}</p>
           <p>Diajukan {timestamp(detail.requested_at)} · Ditinjau {timestamp(detail.reviewed_at)}</p>

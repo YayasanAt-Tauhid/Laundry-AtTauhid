@@ -4,7 +4,7 @@ Menu **Koreksi Tagihan** (`/order-corrections`) mempertahankan tagihan, kuitansi
 
 ## Operasional
 
-1. Pilih siswa dan tagihan lunas, jenis koreksi, nominal yang benar tanpa biaya pembayaran, serta alasan minimal 10 karakter. Koreksi berat/jumlah ditulis jelas dalam alasan; jumlah pada tagihan/kuitansi asli tetap tersimpan sebagai histori.
+1. Pilih siswa dan tagihan lunas, jenis koreksi, serta alasan minimal 10 karakter. Untuk **Koreksi berat/jumlah**, masukkan berat kg atau jumlah pcs yang benar; sistem menghitung nominal koreksi otomatis memakai `price_per_unit` pada tagihan asli (bukan tarif terbaru). Untuk koreksi nominal manual, masukkan nominal jasa yang benar tanpa biaya pembayaran. Jumlah, berat/jumlah, tagihan, kuitansi, dan pembayaran asli tetap tersimpan sebagai histori.
 2. Admin mencocokkan kuitansi, pembayar, dan nominal. Referensi verifikasi dan catatan wajib diisi. Untuk pengurangan, jumlah pengembalian dan penerima asli wajib diverifikasi.
 3. Jangan menghitung pengembalian dari `paid_amount` satu baris: POS menyimpan rincian uang/wadiah/kembalian pada satu order ketika beberapa order dibayar bersama. Periksa kuitansi gabungan, diskon pembulatan, biaya gateway dan kembalian yang sudah dikembalikan. Batas pengembalian adalah selisih nominal; nominal sebenarnya bisa lebih rendah, termasuk nol jika tidak ada uang yang perlu dikembalikan. Penyesuaian bagi hasil mengikuti rasio pada tagihan historis, dengan pembulatan rupiah; sisa menjadi bagian mitra sehingga jumlah bagian tetap sama dengan nilai koreksi.
 4. Jika selisih berupa tagihan tambahan, selesaikan melalui kasir di menu Koreksi Tagihan. Penyesuaian ini memiliki nominal dan status sendiri; tagihan lunas asli tidak kembali menjadi belum dibayar. Pembayaran online untuk selisih pada menu ini belum tersedia.
@@ -26,7 +26,7 @@ Satu order dapat memiliki satu koreksi aktif/disetujui. Pengajuan yang ditolak b
 
 ## Aktivasi production
 
-SQL lengkap: `supabase/migrations/20261006070356_paid_order_corrections.sql`.
+SQL dasar: `supabase/migrations/20261006070356_paid_order_corrections.sql`. Dukungan koreksi berat/jumlah ditambahkan oleh `supabase/migrations/20261006104031_paid_order_quantity_correction.sql`.
 
 Migration ini menambah tabel ledger dengan RLS, fungsi pengajuan/tinjauan/penyelesaian, audit, dan guard yang mencegah penghapusan atau perubahan data ekonomi pada order lunas. Tidak memperbarui nominal, status, saldo, maupun pembayaran historis. Guard tetap mengizinkan penyimpanan rincian pembayaran POS dan transisi lunas ke selesai.
 
