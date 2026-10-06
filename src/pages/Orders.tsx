@@ -1252,8 +1252,8 @@ export default function Orders() {
             <DialogHeader>
               <DialogTitle>Detail Order</DialogTitle>
             </DialogHeader>
-            {selectedOrder && userRole === "admin" && ["DIBAYAR", "SELESAI"].includes(selectedOrder.status) && <Button variant="outline" asChild>
-              <Link to={`/order-corrections?order=${selectedOrder.id}`}>Koreksi tagihan lunas</Link>
+            {selectedOrder && userRole === "admin" && <Button variant="outline" asChild>
+              <Link to={`/order-corrections?order=${selectedOrder.id}${["DIBAYAR", "SELESAI"].includes(selectedOrder.status) ? "" : "&mode=unpaid"}`}>Koreksi tagihan</Link>
             </Button>}
             {selectedOrder && (
               <div className="space-y-4">

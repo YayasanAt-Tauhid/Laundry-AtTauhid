@@ -229,9 +229,9 @@ export function StaffBillsTable({ bills, isLoading }: StaffBillsTableProps) {
                   <p className="font-medium">{selectedBill.notes}</p>
                 </div>
               )}
-              {["DIBAYAR", "SELESAI"].includes(selectedBill.status) && <Button variant="outline" asChild>
-                <Link to={`/order-corrections?order=${selectedBill.id}`}>Ajukan koreksi tagihan lunas</Link>
-              </Button>}
+              <Button variant="outline" asChild>
+                <Link to={`/order-corrections?order=${selectedBill.id}${["DIBAYAR", "SELESAI"].includes(selectedBill.status) ? "" : "&mode=unpaid"}`}>Koreksi tagihan</Link>
+              </Button>
             </div>
           )}
         </DialogContent>

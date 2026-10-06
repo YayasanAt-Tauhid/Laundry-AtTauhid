@@ -1,4 +1,5 @@
 import type { OrderCorrection } from "@/types/order-corrections";
+import type { UnpaidOrderRevision } from "@/types/unpaid-order-revisions";
 
 export type Json =
   | string
@@ -16,6 +17,16 @@ export type Database = {
   }
   public: {
     Tables: {
+      unpaid_order_revisions: {
+        Row: UnpaidOrderRevision
+        Insert: Partial<UnpaidOrderRevision>
+        Update: Partial<UnpaidOrderRevision>
+        Relationships: [
+          { foreignKeyName: "unpaid_order_revisions_old_student_id_fkey"; columns: ["old_student_id"]; isOneToOne: false; referencedRelation: "students"; referencedColumns: ["id"] },
+          { foreignKeyName: "unpaid_order_revisions_new_student_id_fkey"; columns: ["new_student_id"]; isOneToOne: false; referencedRelation: "students"; referencedColumns: ["id"] },
+          { foreignKeyName: "unpaid_order_revisions_order_id_fkey"; columns: ["order_id"]; isOneToOne: false; referencedRelation: "laundry_orders"; referencedColumns: ["id"] }
+        ]
+      }
       order_corrections: {
         Row: OrderCorrection
         Insert: Partial<OrderCorrection>
@@ -694,6 +705,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      correct_unpaid_order: {
+        Args: { p_order_id: string; p_expected_updated_at: string; p_student_id: string; p_partner_id: string; p_category: Database["public"]["Enums"]["laundry_category"]; p_quantity: number; p_laundry_date: string; p_notes: string | null; p_reason: string }
+        Returns: string
+      }
       request_order_correction: {
         Args: { p_order_id: string; p_kind: string; p_corrected_total: number; p_reason: string; p_replacement_student_id?: string | null }
         Returns: string

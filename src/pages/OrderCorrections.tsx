@@ -4,6 +4,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
+import { UnpaidOrderCorrections } from "@/components/UnpaidOrderCorrections";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +27,15 @@ const PAGE_SIZE = 25;
 const timestamp = (value: string | null) => value ? new Date(value).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }) : "—";
 
 export default function OrderCorrections() {
+  const [params] = useSearchParams();
+  return <DashboardLayout><Tabs defaultValue={params.get("mode") === "unpaid" ? "unpaid" : "paid"} className="space-y-6">
+    <TabsList className="grid w-full grid-cols-2"><TabsTrigger value="paid">Sudah dibayar</TabsTrigger><TabsTrigger value="unpaid">Belum dibayar</TabsTrigger></TabsList>
+    <TabsContent value="paid"><PaidOrderCorrections /></TabsContent>
+    <TabsContent value="unpaid"><UnpaidOrderCorrections /></TabsContent>
+  </Tabs></DashboardLayout>;
+}
+
+function PaidOrderCorrections() {
   const { userRole } = useAuth();
   const { toast } = useToast();
   const [params] = useSearchParams();
@@ -150,7 +161,7 @@ export default function OrderCorrections() {
     printWindow.print();
   };
 
-  return <DashboardLayout>
+  return <>
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3"><div><h1 className="text-2xl font-bold">Koreksi Tagihan Lunas</h1>
         <p className="text-muted-foreground">Riwayat pembayaran asli tetap tersimpan. Pengembalian dan pembayaran tambahan dicatat terpisah.</p></div>
@@ -234,5 +245,5 @@ export default function OrderCorrections() {
         </div>}
       </div>}
     </DialogContent></Dialog>
-  </DashboardLayout>;
+  </>;
 }

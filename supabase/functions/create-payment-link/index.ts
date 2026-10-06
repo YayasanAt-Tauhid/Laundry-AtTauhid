@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { attachPaymentSnapshot } from "../_shared/attach-payment.ts";
 
 const APP_IDENTIFIER = "LAUNDRY-ATTAUHID";
 
@@ -81,7 +82,7 @@ serve(async (req) => {
     // SECURITY: Fetch total from DB
     const { data: orders, error: ordersError } = await supabase
       .from("laundry_orders")
-      .select("id, total_price, status")
+      .select("id, total_price, status, student_id, updated_at")
       .in("id", orderIds);
 
     if (ordersError || !orders || orders.length === 0) {
@@ -151,21 +152,7 @@ serve(async (req) => {
       );
     }
 
-    // Update orders with midtrans info
-    for (const oid of orderIds) {
-      const { error: updateError } = await supabase
-        .from("laundry_orders")
-        .update({
-          midtrans_order_id: midtransOrderId,
-          midtrans_snap_token: midtransResult.token,
-          status: "MENUNGGU_PEMBAYARAN",
-        })
-        .eq("id", oid);
-
-      if (updateError) {
-        console.error(`Failed to update order ${oid}:`, updateError);
-      }
-    }
+    await attachPaymentSnapshot(supabase, orders, midtransOrderId, midtransResult.token);
 
     return new Response(
       JSON.stringify({

@@ -307,9 +307,10 @@ export function useMidtrans() {
     paymentMethod?: string,
     isCashPayment?: boolean,
     paidBy?: string,
+    expectedBill?: { totalPrice: number; studentId: string },
   ) => {
     try {
-      const { error } = await supabase
+      let paymentQuery = supabase
         .from("laundry_orders")
         .update({
           status: "DIBAYAR",
@@ -317,9 +318,13 @@ export function useMidtrans() {
           payment_method: isCashPayment ? "cash" : paymentMethod || "manual",
           paid_by: paidBy || null,
         })
-        .eq("id", orderId);
+        .eq("id", orderId)
+        .in("status", ["DISETUJUI_MITRA", "MENUNGGU_PEMBAYARAN"]);
+      if (expectedBill) paymentQuery = paymentQuery.eq("total_price", expectedBill.totalPrice).eq("student_id", expectedBill.studentId);
+      const { data, error } = await paymentQuery.select("id").maybeSingle();
 
       if (error) throw error;
+      if (!data) throw new Error("Tagihan berubah atau belum disetujui mitra. Muat ulang sebelum pembayaran.");
 
       toast({
         title: "Berhasil",

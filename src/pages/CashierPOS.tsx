@@ -455,6 +455,17 @@ export default function CashierPOS() {
   };
 
   // Handle Syariah Payment with wadiah and rounding
+  const validateSelectedBills = async () => {
+    const { data, error } = await supabase.from("laundry_orders").select("id,total_price,student_id,status")
+      .in("id", selectedBillsList.map(b => b.id));
+    if (error) throw error;
+    if (data?.length !== selectedBillsList.length || selectedBillsList.some(b => {
+      const current = data.find(o => o.id === b.id);
+      return !current || current.total_price !== b.total_price || current.student_id !== b.students.id
+        || !["DISETUJUI_MITRA", "MENUNGGU_PEMBAYARAN"].includes(current.status);
+    })) throw new Error("Tagihan berubah sejak dipilih. Muat ulang sebelum menerima pembayaran.");
+  };
+
   const handleSyariahPayment = async (
     paymentData: SyariahPaymentData,
   ): Promise<boolean> => {
@@ -465,6 +476,7 @@ export default function CashierPOS() {
       if (!studentId) {
         throw new Error("Student ID tidak ditemukan");
       }
+      await validateSelectedBills();
 
       // 1. Use wadiah balance if applicable
       if (paymentData.wadiahUsed > 0) {
@@ -497,6 +509,7 @@ export default function CashierPOS() {
           paymentData.paymentMethod === "cash" ? "cash" : "bank_transfer",
           paymentData.paymentMethod === "cash",
           user?.id,
+          { totalPrice: bill.total_price, studentId: bill.students.id },
         ),
       );
 
@@ -595,7 +608,7 @@ export default function CashierPOS() {
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Gagal memproses pembayaran syariah",
+        description: error instanceof Error ? error.message : "Gagal memproses pembayaran syariah",
       });
       return false;
     } finally {
@@ -607,6 +620,7 @@ export default function CashierPOS() {
     setProcessingPayment(true);
 
     try {
+      await validateSelectedBills();
       const paidAmountNum = parseFloat(paidAmount) || 0;
       if (paidAmountNum < selectedTotal) {
         toast({
@@ -625,6 +639,7 @@ export default function CashierPOS() {
           paymentMethod === "cash" ? "cash" : "bank_transfer",
           paymentMethod === "cash",
           user?.id,
+          { totalPrice: bill.total_price, studentId: bill.students.id },
         ),
       );
 
