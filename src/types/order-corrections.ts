@@ -2,11 +2,12 @@ export type OrderCorrection = {
   id: string;
   order_id: string;
   student_id: string;
-  kind: "price" | "cancel" | "wrong_student";
+  kind: "price" | "quantity" | "cancel" | "wrong_student";
   reason: string;
   original_snapshot: Record<string, string | number | null>;
   original_total: number;
   corrected_total: number;
+  corrected_quantity: number | null;
   delta: number;
   yayasan_delta: number;
   vendor_delta: number;
@@ -32,6 +33,7 @@ export type OrderCorrection = {
 
 export const correctionKindLabels = {
   price: "Koreksi nominal",
+  quantity: "Koreksi berat / jumlah",
   cancel: "Tagihan duplikat / tidak semestinya",
   wrong_student: "Salah siswa",
 } as const;
