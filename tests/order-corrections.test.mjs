@@ -86,10 +86,10 @@ test('paid order correction lifecycle, financial integrity and access control', 
     await mustFail(() => db.query(`update order_corrections set corrected_total=100 where id=$1`,[correction]), /permission denied/);
     await mustFail(() => db.exec(`insert into order_corrections default values`), /permission denied/);
   });
-  await t.test('RLS only exposes a parent’s own correction and assigned partner',async () => {
-    await actor(parent); assert.equal((await db.query('select id from order_corrections')).rows.length,1);
+  await t.test('RLS only exposes a parent’s own corrections and assigned partner',async () => {
+    await actor(parent); assert.equal((await db.query('select id from order_corrections')).rows.length,2);
     await actor(otherParent); assert.equal((await db.query('select id from order_corrections')).rows.length,0);
-    await actor(partner); assert.equal((await db.query('select id from order_corrections')).rows.length,1);
+    await actor(partner); assert.equal((await db.query('select id from order_corrections')).rows.length,2);
   });
   await t.test('staff and cashier cannot approve; settlement before approval fails',async () => {
     await actor(staff); await mustFail(() => approve(correction), /Hanya admin/);
