@@ -713,6 +713,10 @@ export type Database = {
         Args: { p_order_id: string; p_kind: string; p_corrected_total: number; p_reason: string; p_replacement_student_id?: string | null }
         Returns: string
       }
+      request_order_quantity_correction: {
+        Args: { p_order_id: string; p_corrected_quantity: number; p_reason: string }
+        Returns: string
+      }
       review_order_correction: {
         Args: { p_correction_id: string; p_approve: boolean; p_review_note: string; p_verification_reference?: string | null; p_refund_amount?: number | null; p_recipient_reference?: string | null }
         Returns: string
