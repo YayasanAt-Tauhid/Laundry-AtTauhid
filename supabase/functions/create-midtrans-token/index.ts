@@ -130,9 +130,9 @@ serve(async (req) => {
     // =====================================================
     // SECURITY: Fetch total_price from DATABASE, not frontend
     // =====================================================
-    const { data: orders, error: ordersError } = await supabase
+    let { data: orders, error: ordersError } = await supabase
       .from("laundry_orders")
-      .select("id, total_price, category, status, student_id, updated_at")
+      .select("id, total_price, category, status, student_id, updated_at, wadiah_used, midtrans_order_id, midtrans_snap_token")
       .in("id", orderIdsToUpdate);
 
     if (ordersError || !orders || orders.length === 0) {
@@ -173,11 +173,55 @@ serve(async (req) => {
       }
     }
 
+    // Never overwrite an existing gateway link blindly. Verify every linked
+    // transaction is terminal first, reconcile it, then refresh the snapshot.
+    const linkedIds = [...new Set(orders.map((o: any) => o.midtrans_order_id).filter(Boolean))];
+    if (orders.some((o: any) => o.midtrans_snap_token && !o.midtrans_order_id)) {
+      throw new Error("Tagihan memiliki token Midtrans tanpa Order ID. Rekonsiliasi admin diperlukan.");
+    }
+    if (linkedIds.length > 0) {
+      const terminalStatuses = ["expire", "deny", "cancel"];
+      const statusAuth = btoa(`${MIDTRANS_SERVER_KEY}:`);
+      for (const linkedId of linkedIds) {
+        const statusUrl = MIDTRANS_IS_PRODUCTION
+          ? `https://api.midtrans.com/v2/${linkedId}/status`
+          : `https://api.sandbox.midtrans.com/v2/${linkedId}/status`;
+        const statusResponse = await fetch(statusUrl, {
+          headers: { Accept: "application/json", Authorization: `Basic ${statusAuth}` },
+        });
+        const statusData = await statusResponse.json();
+        if (!statusResponse.ok || !terminalStatuses.includes(statusData.transaction_status)) {
+          throw new Error(`Transaksi Midtrans ${linkedId} masih aktif dan tidak boleh ditimpa`);
+        }
+        const { error: reconcileError } = await supabase.rpc(
+          "reconcile_expired_laundry_payment",
+          {
+            p_midtrans_order_id: linkedId,
+            p_terminal_status: statusData.transaction_status,
+            p_actor_id: ["admin", "staff", "cashier"].includes(userRole || "") ? userId : null,
+          },
+        );
+        if (reconcileError) throw new Error(reconcileError.message);
+      }
+      const refreshed = await supabase
+        .from("laundry_orders")
+        .select("id, total_price, category, status, student_id, updated_at, wadiah_used, midtrans_order_id, midtrans_snap_token")
+        .in("id", orderIdsToUpdate);
+      if (refreshed.error || !refreshed.data || refreshed.data.length !== orderIdsToUpdate.length) {
+        throw new Error("Gagal memuat ulang tagihan setelah rekonsiliasi Midtrans");
+      }
+      orders = refreshed.data;
+    }
+
     // Calculate grossAmount from database values
     const grossAmount = orders.reduce(
-      (sum: number, order: any) => sum + order.total_price,
-      0
+      (sum: number, order: any) =>
+        sum + Math.max((order.total_price || 0) - (order.wadiah_used || 0), 0),
+      0,
     );
+    if (grossAmount <= 0) {
+      throw new Error("Tagihan sudah tertutup oleh saldo Wadiah");
+    }
 
     console.log(
       `SECURITY: grossAmount calculated from DB = ${grossAmount} (${orders.length} orders), user=${userId}, role=${userRole}`
