@@ -52,6 +52,7 @@ export function UnpaidOrderCorrections() {
   const [page, setPage] = useState(0);
   const [count, setCount] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [reconciling, setReconciling] = useState(false);
   const [loading, setLoading] = useState(true);
   const choose = useCallback((o: Order) => {
     setSelected(o); setStudent(o.student_id); setPartner(o.partner_id); setCategory(o.category);
@@ -111,11 +112,13 @@ export function UnpaidOrderCorrections() {
   const q = Number(quantity);
   const estimate = Math.round(q * getPrice(category));
   const gatewayBlocked = !!(selected?.midtrans_order_id || selected?.midtrans_snap_token);
-  const fundsBlocked = !!selected && (selected.paid_at !== null || selected.paid_by !== null ||
-    (selected.paid_amount ?? 0) !== 0 || (selected.wadiah_used ?? 0) !== 0 || (selected.change_amount ?? 0) !== 0 || (selected.rounding_applied ?? 0) !== 0);
+  const nonWadiahFundsBlocked = !!selected && (selected.paid_at !== null || selected.paid_by !== null ||
+    (selected.paid_amount ?? 0) !== 0 || (selected.change_amount ?? 0) !== 0 || (selected.rounding_applied ?? 0) !== 0);
+  const wadiahPresent = !!selected && (selected.wadiah_used ?? 0) > 0;
+  const fundsBlocked = nonWadiahFundsBlocked || wadiahPresent;
   const valid = !!selected && !!student && !!partner && !!date && Number.isFinite(q) && q > 0 && q <= 100000
     && (category === "kiloan" || Number.isInteger(q)) && reason.trim().length >= 10 && !gatewayBlocked && !fundsBlocked && isFromDatabase;
-  const cancelValid = !!selected && cancelReason.trim().length >= 10 && !gatewayBlocked && !fundsBlocked;
+  const cancelValid = !!selected && cancelReason.trim().length >= 10 && !gatewayBlocked && !nonWadiahFundsBlocked;
   const save = async () => {
     if (!selected || !valid) return;
     setBusy(true);
@@ -132,6 +135,30 @@ export function UnpaidOrderCorrections() {
       showError(typeof error === "object" && error && "message" in error ? String(error.message) : "Gagal menyimpan koreksi.");
     } finally { setBusy(false); }
   };
+  const reconcileGateway = async () => {
+    if (!selected?.midtrans_order_id) return;
+    setReconciling(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("get-payment-info", {
+        body: { token: selected.midtrans_order_id },
+      });
+      if (error) throw error;
+      if (data?.paid) {
+        toast({ title: "Pembayaran sudah selesai", description: "Muat ulang tagihan sebelum melakukan koreksi atau pembatalan." });
+      } else if (data?.expired && data?.reconciled) {
+        toast({ title: "Midtrans sudah direkonsiliasi", description: "Tautan kedaluwarsa sudah dilepas. Tagihan dapat diproses kembali dengan aman." });
+      } else {
+        toast({ title: "Transaksi Midtrans masih aktif", description: "Pembatalan belum dapat dilakukan sampai transaksi berstatus kedaluwarsa, dibatalkan, atau ditolak." });
+      }
+      const { data: refreshed, error: refreshError } = await supabase.from("laundry_orders").select("*").eq("id", selected.id).single();
+      if (refreshError) throw refreshError;
+      choose(refreshed);
+      await loadOrders();
+    } catch (error) {
+      showError(typeof error === "object" && error && "message" in error ? String(error.message) : "Gagal memeriksa status Midtrans.");
+    } finally { setReconciling(false); }
+  };
+
   const cancelOrder = async () => {
     if (!selected || !cancelValid) return;
     setBusy(true);
@@ -162,8 +189,14 @@ export function UnpaidOrderCorrections() {
       {filterStudent && orders.length === 0 && <p className="text-sm text-muted-foreground">Tidak ada tagihan belum dibayar.</p>}
       {selected && <>
         <div className="bg-muted rounded-lg p-3 text-sm">Status saat ini: {ORDER_STATUS[selected.status].label} · Nominal lama: {rupiah(selected.total_price)}</div>
-        {gatewayBlocked && <p className="text-sm text-destructive">Tautan Midtrans masih terkait. Tunggu pembayaran selesai atau notifikasi kedaluwarsa/pembatalan. Jangan mengubah nominal saat pembayaran masih berjalan.</p>}
-        {fundsBlocked && <p className="text-sm text-destructive">Tagihan memiliki jejak pembayaran atau penggunaan wadiah. Minta admin melakukan rekonsiliasi terlebih dahulu.</p>}
+        {gatewayBlocked && <div className="space-y-2">
+          <p className="text-sm text-destructive">Tautan Midtrans masih terkait. Periksa status gateway sebelum koreksi atau pembatalan.</p>
+          <Button type="button" variant="outline" disabled={reconciling || !selected.midtrans_order_id} onClick={() => void reconcileGateway()}>
+            {reconciling && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Periksa & rekonsiliasi Midtrans
+          </Button>
+        </div>}
+        {nonWadiahFundsBlocked && <p className="text-sm text-destructive">Tagihan memiliki jejak pembayaran non-Wadiah. Rekonsiliasi admin diperlukan sebelum pembatalan.</p>}
+        {wadiahPresent && <p className="text-sm text-amber-700">Wadiah sudah digunakan sebesar {rupiah(selected.wadiah_used ?? 0)}. Koreksi rincian tetap dikunci, tetapi saat pembatalan sistem akan mengembalikan Wadiah secara otomatis dan mencatat refund.</p>}
         <Label>Siswa yang benar</Label><StudentAutocomplete students={pickerStudents.filter(s => s.is_active)} value={student} onValueChange={setStudent} />
         <Label>Mitra laundry</Label><Select value={partner} onValueChange={setPartner}><SelectTrigger><SelectValue placeholder="Pilih mitra aktif" /></SelectTrigger>
           <SelectContent>{partners.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent></Select>
