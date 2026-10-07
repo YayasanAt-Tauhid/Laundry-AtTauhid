@@ -43,7 +43,7 @@ serve(async (req) => {
     // =====================================================
     const { data: orders, error: ordersError } = await supabase
       .from("laundry_orders")
-      .select("id, status, midtrans_order_id, total_price, student_id, updated_at")
+      .select("id, status, midtrans_order_id, total_price, student_id, updated_at, wadiah_used")
       .in("id", orderIds);
 
     if (ordersError || !orders || orders.length === 0) {
@@ -102,6 +102,41 @@ serve(async (req) => {
       }
     }
 
+    // The old gateway transaction must be terminal before replacing its token.
+    if (!oldMidtransOrderId) {
+      throw new Error("Old Midtrans order ID wajib diisi");
+    }
+    const statusUrl = MIDTRANS_IS_PRODUCTION
+      ? `https://api.midtrans.com/v2/${oldMidtransOrderId}/status`
+      : `https://api.sandbox.midtrans.com/v2/${oldMidtransOrderId}/status`;
+    const statusAuth = btoa(`${MIDTRANS_SERVER_KEY}:`);
+    const statusResponse = await fetch(statusUrl, {
+      headers: { Accept: "application/json", Authorization: `Basic ${statusAuth}` },
+    });
+    const statusData = await statusResponse.json();
+    const terminalStatuses = ["expire", "deny", "cancel"];
+    if (!statusResponse.ok || !terminalStatuses.includes(statusData.transaction_status)) {
+      throw new Error("Transaksi lama belum berstatus kedaluwarsa, ditolak, atau dibatalkan");
+    }
+    const { error: reconcileError } = await supabase.rpc(
+      "reconcile_expired_laundry_payment",
+      {
+        p_midtrans_order_id: oldMidtransOrderId,
+        p_terminal_status: statusData.transaction_status,
+        p_actor_id: null,
+      },
+    );
+    if (reconcileError) throw new Error(reconcileError.message);
+
+    const { data: refreshedOrders, error: refreshedError } = await supabase
+      .from("laundry_orders")
+      .select("id, status, midtrans_order_id, total_price, student_id, updated_at, wadiah_used")
+      .in("id", orderIds);
+    if (refreshedError || !refreshedOrders || refreshedOrders.length !== orderIds.length) {
+      throw new Error("Gagal memuat ulang tagihan setelah rekonsiliasi");
+    }
+    orders.splice(0, orders.length, ...refreshedOrders);
+
     // Check none are already paid
     const paidOrders = orders.filter(o => o.status === "DIBAYAR" || o.status === "SELESAI");
     if (paidOrders.length > 0) {
@@ -116,7 +151,13 @@ serve(async (req) => {
     }
 
     // SECURITY: Calculate amount from DB
-    const grossAmount = orders.reduce((sum: number, o: any) => sum + o.total_price, 0);
+    const grossAmount = orders.reduce(
+      (sum: number, o: any) => sum + Math.max((o.total_price || 0) - (o.wadiah_used || 0), 0),
+      0,
+    );
+    if (grossAmount <= 0) {
+      throw new Error("Tagihan sudah tertutup oleh saldo Wadiah");
+    }
 
     // Generate new Midtrans order ID
     const isBulk = orderIds.length > 1;
