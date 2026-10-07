@@ -156,7 +156,7 @@ export function StudentArrearsReport() {
           students (id, name, class, nik, parent_id),
           laundry_partners (name)
         `)
-        .not("status", "in", '("DIBAYAR","SELESAI","DITOLAK_MITRA")')
+        .not("status", "in", '("DIBAYAR","SELESAI","DITOLAK_MITRA","DIBATALKAN")')
         .order("laundry_date", { ascending: false });
 
       // Date filter
