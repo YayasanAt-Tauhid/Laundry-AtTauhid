@@ -12,6 +12,7 @@ const statusStyles: Record<OrderStatus, string> = {
   DITOLAK_MITRA: 'bg-destructive/10 text-destructive border border-destructive/20',
   DISETUJUI_MITRA: 'bg-accent/10 text-accent border border-accent/20',
   MENUNGGU_PEMBAYARAN: 'bg-primary/10 text-primary border border-primary/20',
+  DIBATALKAN: 'bg-destructive/10 text-destructive border border-destructive/20',
   DIBAYAR: 'bg-success/10 text-success border border-success/20',
   SELESAI: 'bg-success/10 text-success border border-success/20',
 };
