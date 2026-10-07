@@ -10,7 +10,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test:corrections": "node --test tests/*corrections*.test.mjs",
-    "test:settlements": "node --test tests/partner-settlements.test.mjs"
+    "test:settlements": "node --test tests/*settlements.test.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

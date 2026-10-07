@@ -735,6 +735,18 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      preview_partner_period: {
+        Args: { p_partner_id: string; p_start: string; p_end: string }
+        Returns: Json
+      }
+      verify_partner_adjustment: {
+        Args: { p_partner_id: string; p_start: string; p_end: string; p_source_type: string; p_source_id: string; p_previously_paid: boolean; p_reference: string }
+        Returns: string
+      }
+      record_partner_period: {
+        Args: { p_partner_id: string; p_start: string; p_end: string; p_expected_token: string; p_method: string; p_reference: string; p_note?: string | null }
+        Returns: string
+      }
       activate_partner_settlement: {
         Args: { p_partner_id: string; p_start_date: string; p_note: string }
         Returns: string

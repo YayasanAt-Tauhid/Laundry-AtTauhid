@@ -10,6 +10,7 @@ export type PartnerSettlement = {
   id: string;
   partner_id: string;
   cutoff_date: string;
+  period_start: string | null;
   order_share_total: number;
   correction_adjustment: number;
   net_amount: number;
@@ -27,7 +28,7 @@ export type PartnerSettlementLine = {
   id: string;
   settlement_id: string;
   partner_id: string;
-  source_type: "order" | "correction";
+  source_type: "order" | "correction" | "revision" | "revision_credit";
   source_id: string;
   amount: number;
   event_at: string;
@@ -57,3 +58,26 @@ export const formatRupiah = (amount: number) =>
     currency: "IDR",
     maximumFractionDigits: 0,
   }).format(amount);
+
+export type PartnerPeriodLine = {
+  source_type: PartnerSettlementLine["source_type"];
+  source_id: string;
+  amount: number;
+  event_at: string;
+  source_snapshot: Record<string, string | number | boolean | null>;
+  historical: boolean;
+  decision: "included" | "paid_in_ledger" | "paid_manually" | "not_paid" | "unverified";
+};
+
+export type PartnerPeriodPreview = {
+  active: boolean;
+  start_date?: string;
+  period_start?: string;
+  period_end?: string;
+  order_share_total?: number;
+  correction_adjustment?: number;
+  net_amount?: number;
+  unverified_count?: number;
+  lines?: PartnerPeriodLine[];
+  token?: string;
+};

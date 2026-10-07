@@ -1,10 +1,10 @@
 # Settlement Mitra Laundry
 
-Menu **Settlement Mitra** (`/partner-settlements`) digunakan untuk membayar bagian mitra berdasarkan saldo bersih yang belum pernah direkonsiliasi.
+Menu **Settlement Mitra** (`/partner-settlements`) dan panel **Pembayaran Mitra per Periode Laundry** di `/reports` → **Tagihan** menggunakan periode tanggal laundry. Pilih satu mitra, tanggal awal, dan tanggal akhir.
 
 ## Prinsip
 
-- Order biasa baru menjadi hak mitra setelah statusnya **DIBAYAR** atau **SELESAI**.
+- Bagian order pada periode laundry dihitung termasuk yang belum dibayar siswa, sesuai rekap Tagihan. Order **DITOLAK_MITRA** dan **DIBATALKAN** dikeluarkan.
 - Setiap order hanya boleh masuk satu settlement.
 - Koreksi negatif (misalnya double input, tagihan tidak semestinya, atau berat terlalu besar) mengurangi hak mitra setelah koreksi disetujui admin.
 - Koreksi positif baru menambah hak mitra setelah pembayaran tambahan pelanggan selesai.
@@ -22,15 +22,17 @@ Contoh:
 
 Tanggal awal ini sengaja tidak dibuat otomatis supaya transaksi historis yang sudah pernah dibayar tidak ikut dibayar ulang.
 
-Koreksi terhadap order lama tetap dapat masuk ke settlement baru apabila koreksinya terjadi setelah tanggal aktivasi. Dengan begitu, jika order lama sudah dibayar ke mitra lalu kemudian ditemukan salah berat/double input, bagian mitra yang berlebih tetap dikurangkan pada pembayaran berikutnya.
+Koreksi yang dibuat setelah akhir periode tetap dapat menjadi penyesuaian pada pembayaran periode tersebut. Untuk order sebelum batas ledger, admin/kasir harus memverifikasi apakah bagian mitranya dahulu sudah dibayar manual, beserta bukti/dasar pemeriksaan. Jika sudah dibayar, selisih dipakai sekali. Jika belum dibayar, selisih tidak dipotong lagi dari periode berikutnya. Order setelah batas ledger yang belum memiliki pembayaran tercatat tidak dianggap sudah dibayar.
+
+Pembatalan tagihan yang belum dibayar **siswa** juga dapat memerlukan pengurangan pembayaran **mitra** apabila bagian mitra sudah dibayarkan. Revisi yang terjadi sebelum pencatatan pembayaran mitra sudah tercermin dalam nominal order dan tidak dipotong ulang.
 
 ## Rumus pembayaran
 
 ```
 Saldo bersih mitra
-= bagian order lunas yang belum disettlement
+= bagian order periode laundry yang belum dibayar ke mitra
 + koreksi positif yang sudah lunas
-- koreksi negatif yang belum direkonsiliasi
+- pengurangan terverifikasi yang belum direkonsiliasi
 ```
 
 Contoh:
@@ -50,10 +52,13 @@ Setiap settlement menyimpan referensi pembayaran, waktu, pelaku, jumlah order, j
 
 ## Keamanan data
 
-Tabel ledger hanya dapat dibaca langsung oleh role yang berhak. Penulisan dilakukan melalui RPC yang memeriksa role dan menghitung ulang sumber yang belum pernah disettlement. Constraint unik `(source_type, source_id)` mencegah order/koreksi yang sama dibayar dua kali.
+Tabel ledger hanya dapat dibaca langsung oleh role yang berhak. Penulisan dilakukan melalui RPC yang memeriksa role dan menghitung ulang sumber yang belum pernah disettlement. Constraint unik `(source_type, source_id)` mencegah order/koreksi/revisi yang sama dibayar dua kali, termasuk periode yang tumpang tindih. Token preview mencegah pencatatan dengan angka lama; transaksi dikunci dan dihitung ulang saat disimpan. Verifikasi lama yang masih belum selesai menghalangi pencatatan.
+
+RPC lama berbasis `paid_at` menolak pencatatan setelah migration baru, agar tab browser lama tidak memakai rumus yang berbeda.
 
 Migration:
-`supabase/migrations/20261006113044_partner_settlement_ledger.sql`.
+`supabase/migrations/20261006113044_partner_settlement_ledger.sql` dan
+`supabase/migrations/20261007071050_partner_period_settlements.sql`.
 
 Pengujian:
 ```

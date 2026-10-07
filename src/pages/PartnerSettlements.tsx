@@ -8,7 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Loader2, RefreshCw, WalletCards } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
+import { PartnerPeriodPayment } from "@/components/reports/PartnerPeriodPayment";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
@@ -18,7 +19,6 @@ import {
   type PartnerSettlement,
   type PartnerSettlementAccount,
   type PartnerSettlementLine,
-  type PartnerSettlementPreview,
 } from "@/types/partner-settlements";
 
 type Partner = { id: string; name: string; user_id: string | null; is_active: boolean };
@@ -30,19 +30,15 @@ const dateLabel = (value: string) => new Date(`${value}T00:00:00+07:00`).toLocal
 export default function PartnerSettlements() {
   const { user, userRole } = useAuth();
   const { toast } = useToast();
-  const canRecord = userRole === "admin" || userRole === "cashier";
   const canActivate = userRole === "admin";
   const [partners, setPartners] = useState<Partner[]>([]);
   const [partnerId, setPartnerId] = useState("");
   const [account, setAccount] = useState<PartnerSettlementAccount | null>(null);
-  const [preview, setPreview] = useState<PartnerSettlementPreview | null>(null);
   const [history, setHistory] = useState<PartnerSettlement[]>([]);
   const [cutoffDate, setCutoffDate] = useState(todayJakarta());
   const [startDate, setStartDate] = useState(todayJakarta());
+  const [periodStart, setPeriodStart] = useState("");
   const [activationNote, setActivationNote] = useState("");
-  const [method, setMethod] = useState<PartnerSettlement["payment_method"]>("bank_transfer");
-  const [reference, setReference] = useState("");
-  const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<PartnerSettlement | null>(null);
@@ -69,7 +65,7 @@ export default function PartnerSettlements() {
 
   const loadPartnerData = useCallback(async () => {
     if (!partnerId) {
-      setAccount(null); setPreview(null); setHistory([]); setLoading(false); return;
+      setAccount(null); setHistory([]); setLoading(false); return;
     }
     setLoading(true);
     try {
@@ -82,34 +78,13 @@ export default function PartnerSettlements() {
       const currentAccount = (accountData ?? null) as PartnerSettlementAccount | null;
       setAccount(currentAccount);
       setHistory((historyData ?? []) as PartnerSettlement[]);
-      if (!currentAccount) {
-        setPreview(null);
-        return;
-      }
-      if (cutoffDate < currentAccount.start_date) setCutoffDate(currentAccount.start_date);
-      const effectiveCutoff = cutoffDate < currentAccount.start_date ? currentAccount.start_date : cutoffDate;
-      const { data: previewData, error: previewError } = await supabase.rpc("preview_partner_settlement", {
-        p_partner_id: partnerId,
-        p_cutoff_date: effectiveCutoff,
-      });
-      if (previewError) throw previewError;
-      const row = previewData?.[0];
-      setPreview(row ? {
-        active: row.active,
-        start_date: row.start_date,
-        order_share_total: Number(row.order_share_total),
-        correction_adjustment: Number(row.correction_adjustment),
-        net_amount: Number(row.net_amount),
-        order_count: Number(row.order_count),
-        correction_count: Number(row.correction_count),
-      } : null);
+      setPeriodStart(current => current && current >= (currentAccount?.start_date ?? "") ? current : currentAccount?.start_date ?? "");
     } catch (error) {
       toast({ variant: "destructive", title: "Gagal memuat settlement", description: errorText(error) });
-      setPreview(null);
     } finally {
       setLoading(false);
     }
-  }, [partnerId, cutoffDate, toast]);
+  }, [partnerId, toast]);
 
   useEffect(() => { void loadPartners(); }, [loadPartners]);
   useEffect(() => { void loadPartnerData(); }, [loadPartnerData]);
@@ -135,32 +110,6 @@ export default function PartnerSettlements() {
     }
   };
 
-  const record = async () => {
-    if (!canRecord || !partnerId || !preview || preview.net_amount <= 0 || reference.trim().length < 5) return;
-    const confirmed = window.confirm(
-      `Catat pembayaran ke ${selectedPartner?.name ?? "mitra"} sebesar ${formatRupiah(preview.net_amount)}? Transaksi settlement yang sudah tercatat tidak dapat dihapus dari aplikasi.`,
-    );
-    if (!confirmed) return;
-    setBusy(true);
-    try {
-      const { error } = await supabase.rpc("record_partner_settlement", {
-        p_partner_id: partnerId,
-        p_cutoff_date: cutoffDate,
-        p_method: method,
-        p_reference: reference.trim(),
-        p_note: note.trim() || null,
-      });
-      if (error) throw error;
-      toast({ title: "Pembayaran mitra tercatat", description: `Nilai bersih ${formatRupiah(preview.net_amount)} sudah masuk histori settlement.` });
-      setReference(""); setNote("");
-      await loadPartnerData();
-    } catch (error) {
-      toast({ variant: "destructive", title: "Pencatatan gagal", description: errorText(error) });
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const openDetail = async (row: PartnerSettlement) => {
     setDetail(row);
     setDetailLines([]);
@@ -180,7 +129,7 @@ export default function PartnerSettlements() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Settlement Mitra</h1>
-          <p className="text-muted-foreground">Bagian mitra dibayar berdasarkan order lunas ditambah atau dikurangi koreksi yang belum pernah direkonsiliasi.</p>
+          <p className="text-muted-foreground">Pembayaran mengikuti periode tanggal laundry, termasuk tagihan yang belum dibayar siswa dan penyesuaian lama terverifikasi.</p>
         </div>
         <Button variant="outline" onClick={() => void loadPartnerData()} disabled={loading}><RefreshCw className="h-4 w-4" /><span className="sr-only">Muat ulang</span></Button>
       </div>
@@ -202,34 +151,18 @@ export default function PartnerSettlements() {
           </> : <p className="text-sm">Aktivasi hanya dapat dilakukan admin.</p>}
         </CardContent></Card>
       ) : <>
-        <Card><CardHeader><CardTitle>Saldo Belum Direkonsiliasi</CardTitle></CardHeader><CardContent className="space-y-5">
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="space-y-2"><Label htmlFor="cutoff-date">Hitung sampai tanggal</Label><Input id="cutoff-date" type="date" min={account.start_date} max={todayJakarta()} value={cutoffDate} onChange={e => setCutoffDate(e.target.value)} /></div>
-            <p className="text-sm text-muted-foreground pb-2">Ledger aktif sejak {dateLabel(account.start_date)}.</p>
+        <Card><CardHeader><CardTitle>Periode Laundry</CardTitle></CardHeader><CardContent>
+          <div className="flex flex-wrap gap-4">
+            <div className="space-y-2"><Label htmlFor="period-start">Dari tanggal</Label><Input id="period-start" type="date" min={account.start_date} max={cutoffDate} value={periodStart} onChange={e => setPeriodStart(e.target.value)} /></div>
+            <div className="space-y-2"><Label htmlFor="cutoff-date">Sampai tanggal</Label><Input id="cutoff-date" type="date" min={periodStart || account.start_date} max={todayJakarta()} value={cutoffDate} onChange={e => setCutoffDate(e.target.value)} /></div>
           </div>
-          {preview && <div className="grid gap-3 md:grid-cols-3">
-            <div className="rounded-lg border p-4"><p className="text-sm text-muted-foreground">Bagian order lunas</p><p className="text-xl font-bold">{formatRupiah(preview.order_share_total)}</p><p className="text-xs text-muted-foreground">{preview.order_count} order belum disettlement</p></div>
-            <div className="rounded-lg border p-4"><p className="text-sm text-muted-foreground">Penyesuaian koreksi</p><p className="text-xl font-bold">{formatRupiah(preview.correction_adjustment)}</p><p className="text-xs text-muted-foreground">{preview.correction_count} koreksi belum direkonsiliasi</p></div>
-            <div className="rounded-lg border p-4"><p className="text-sm text-muted-foreground">Saldo bersih mitra</p><p className="text-xl font-bold">{formatRupiah(preview.net_amount)}</p>
-              <p className="text-xs text-muted-foreground">{preview.net_amount > 0 ? "Nilai maksimal yang dapat dibayar sekarang." : "Tidak ada pembayaran; saldo minus/nihil dibawa ke settlement berikutnya."}</p></div>
-          </div>}
-          <p className="text-sm text-muted-foreground">Koreksi negatif mengurangi hak mitra segera setelah disetujui admin. Koreksi positif baru menambah hak mitra setelah pembayaran tambahan pelanggan benar-benar selesai.</p>
+          <p className="text-sm text-muted-foreground mt-3">Batas awal ledger: {dateLabel(account.start_date)}. {account.activation_note}</p>
         </CardContent></Card>
-
-        {canRecord && <Card><CardHeader><CardTitle>Catat Pembayaran Mitra</CardTitle></CardHeader><CardContent className="space-y-4">
-          <div className="space-y-2 max-w-sm"><Label>Metode pembayaran</Label><Select value={method} onValueChange={v => setMethod(v as PartnerSettlement["payment_method"])}><SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>{Object.entries(partnerSettlementMethodLabels).map(([key,label]) => <SelectItem key={key} value={key}>{label}</SelectItem>)}</SelectContent></Select></div>
-          <div className="space-y-2"><Label htmlFor="partner-payment-reference">Referensi/bukti pembayaran</Label><Input id="partner-payment-reference" maxLength={500} value={reference} onChange={e => setReference(e.target.value)} placeholder="No. transfer / kuitansi / bukti kas" /></div>
-          <div className="space-y-2"><Label htmlFor="partner-payment-note">Catatan (opsional)</Label><Textarea id="partner-payment-note" maxLength={2000} value={note} onChange={e => setNote(e.target.value)} /></div>
-          <Button onClick={() => void record()} disabled={busy || !preview || preview.net_amount <= 0 || reference.trim().length < 5}>
-            {busy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <WalletCards className="h-4 w-4 mr-2" />}
-            Catat Pembayaran {preview ? formatRupiah(Math.max(0, preview.net_amount)) : ""}
-          </Button>
-        </CardContent></Card>}
+        <PartnerPeriodPayment partnerId={partnerId} partnerName={selectedPartner?.name ?? "Mitra"} start={periodStart} end={cutoffDate} onRecorded={() => void loadPartnerData()} />
 
         <Card><CardHeader><CardTitle>Riwayat Settlement</CardTitle></CardHeader><CardContent className="space-y-3">
           {history.length === 0 ? <p className="text-muted-foreground">Belum ada pembayaran mitra yang dicatat di ledger baru.</p> : history.map(row => <div key={row.id} className="rounded-lg border p-4 space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-semibold">{formatRupiah(row.net_amount)}</p><p className="text-sm text-muted-foreground">{timestamp(row.paid_at)} · sampai {dateLabel(row.cutoff_date)}</p></div><Badge variant="outline">{partnerSettlementMethodLabels[row.payment_method]}</Badge></div>
+            <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-semibold">{formatRupiah(row.net_amount)}</p><p className="text-sm text-muted-foreground">{timestamp(row.paid_at)} · {row.period_start ? `${dateLabel(row.period_start)}–` : "sampai "}{dateLabel(row.cutoff_date)}</p></div><Badge variant="outline">{partnerSettlementMethodLabels[row.payment_method]}</Badge></div>
             <p className="text-sm">Order {formatRupiah(row.order_share_total)} + koreksi {formatRupiah(row.correction_adjustment)} · {row.order_count} order · {row.correction_count} koreksi</p>
             <p className="text-sm text-muted-foreground">Referensi: {row.payment_reference}</p>
             <Button variant="outline" size="sm" onClick={() => void openDetail(row)}>Lihat rincian sumber</Button>
