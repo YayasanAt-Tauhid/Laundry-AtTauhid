@@ -41,6 +41,8 @@ import { StudentArrearsReport } from "@/components/reports/StudentArrearsReport"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LAUNDRY_CATEGORIES } from "@/lib/constants";
 import { correctionReportEntries } from "@/lib/correction-report";
+import { escapePrintHtml, partnerPaymentPrintHtml, type PrintedPartnerSettlement } from "@/lib/partner-payment-print";
+import type { PartnerPeriodPreview } from "@/types/partner-settlements";
 import {
   Dialog,
   DialogContent,
@@ -178,6 +180,7 @@ export default function Reports() {
   const [billStartDate, setBillStartDate] = useState("");
   const [billEndDate, setBillEndDate] = useState("");
   const [loadingBillReport, setLoadingBillReport] = useState(false);
+  const [printingBillReport, setPrintingBillReport] = useState(false);
   const [activeTab, setActiveTab] = useState("summary");
 
   useEffect(() => {
@@ -681,7 +684,7 @@ export default function Reports() {
     return "Semua Waktu";
   };
 
-  const handlePrintBillReport = () => {
+  const handlePrintBillReport = async () => {
     const printWindow = window.open("", "_blank");
     if (!printWindow) {
       toast({
@@ -698,6 +701,31 @@ export default function Reports() {
       selectedPartnerId === "all"
         ? "Semua Mitra"
         : selectedPartner?.name || "-";
+
+    let paymentHtml = partnerPaymentPrintHtml(null);
+    setPrintingBillReport(true);
+    printWindow.document.write("<p>Memuat laporan...</p>");
+    try {
+      if (selectedPartnerId !== "all" && billStartDate && billEndDate) {
+        const [previewResult, settlementsResult] = await Promise.all([
+          supabase.rpc("preview_partner_period", { p_partner_id: selectedPartnerId, p_start: billStartDate, p_end: billEndDate }),
+          supabase.from("partner_settlements").select("*, partner_settlement_lines(*)")
+            .eq("partner_id", selectedPartnerId).eq("period_start", billStartDate).eq("cutoff_date", billEndDate).order("paid_at"),
+        ]);
+        if (settlementsResult.error) throw settlementsResult.error;
+        if (previewResult.error) {
+          paymentHtml = `<section><h2>Pembayaran Mitra</h2><p>Perhitungan bersih belum tersedia: ${escapePrintHtml(previewResult.error.message)}</p></section>`;
+        } else {
+          paymentHtml = partnerPaymentPrintHtml(previewResult.data as PartnerPeriodPreview, settlementsResult.data as PrintedPartnerSettlement[]);
+        }
+      }
+    } catch (error) {
+      printWindow.close();
+      toast({ variant: "destructive", title: "Laporan belum dicetak", description: error instanceof Error ? error.message : "Gagal memuat rincian pembayaran mitra. Coba lagi." });
+      return;
+    } finally { setPrintingBillReport(false); }
+    if (printWindow.closed) return;
+    printWindow.document.open();
 
     printWindow.document.write(`
       <!DOCTYPE html>
@@ -732,6 +760,11 @@ export default function Reports() {
           .footer { margin-top: 20px; display: flex; justify-content: space-between; }
           .signature-box { width: 180px; text-align: center; }
           .signature-box .line { border-top: 1px solid #000; margin-top: 50px; padding-top: 5px; }
+          .partner-payment { border: 2px solid #000; padding: 12px; margin: 15px 0; }
+          section h2 { font-size: 14px; margin-bottom: 6px; }
+          section h3 { font-size: 12px; margin: 12px 0 6px; }
+          section p { margin: 6px 0; }
+          section .summary-cards { margin-top: 10px; }
           @media print {
             body { padding: 10px; }
             @page { margin: 8mm; size: landscape; }
@@ -760,18 +793,18 @@ export default function Reports() {
             <div class="value">${formatCurrency(billReportData.totalAmount)}</div>
           </div>
           <div class="summary-card paid">
-            <div class="label">Sudah Dibayar</div>
+            <div class="label">Sudah Dibayar Siswa</div>
             <div class="value">${formatCurrency(billReportData.paidAmount)} (${billReportData.paidOrders})</div>
           </div>
           <div class="summary-card unpaid">
-            <div class="label">Belum Dibayar</div>
+            <div class="label">Belum Dibayar Siswa</div>
             <div class="value">${formatCurrency(billReportData.unpaidAmount)} (${billReportData.unpaidOrders})</div>
           </div>
         </div>
 
         <div class="summary-cards">
           <div class="summary-card vendor">
-            <div class="label">Total Bagian Vendor</div>
+            <div class="label">Bagian mitra dari tagihan periode ini</div>
             <div class="value">${formatCurrency(billReportData.totalVendorShare)}</div>
           </div>
           <div class="summary-card yayasan">
@@ -779,6 +812,8 @@ export default function Reports() {
             <div class="value">${formatCurrency(billReportData.totalYayasanShare)}</div>
           </div>
         </div>
+
+        ${paymentHtml}
 
         <table>
           <thead>
@@ -1710,7 +1745,8 @@ export default function Reports() {
                       variant="outline"
                       onClick={handlePrintBillReport}
                       disabled={
-                        loadingBillReport || billReportData.orders.length === 0
+                        loadingBillReport || printingBillReport || (billReportData.orders.length === 0 &&
+                          !(selectedPartnerId !== "all" && billStartDate && billEndDate))
                       }
                     >
                       <Printer className="h-4 w-4 mr-2" />
@@ -1848,7 +1884,7 @@ export default function Reports() {
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-sm text-muted-foreground">
-                            Total Bagian Vendor
+                            Bagian mitra dari tagihan periode ini
                           </p>
                           <p className="text-2xl font-bold mt-1 text-emerald-600">
                             {formatCurrency(billReportData.totalVendorShare)}
