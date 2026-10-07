@@ -82,6 +82,7 @@ interface UnpaidOrder {
   weight_kg: number | null;
   item_count: number | null;
   total_price: number;
+  wadiah_used: number;
   status: string;
   partner_name: string;
   created_at: string;
@@ -150,6 +151,7 @@ export function StudentArrearsReport() {
           weight_kg,
           item_count,
           total_price,
+          wadiah_used,
           status,
           created_at,
           student_id,
@@ -224,13 +226,15 @@ export function StudentArrearsReport() {
           }
         }
 
+        const outstanding = Math.max(0, (order.total_price || 0) - (order.wadiah_used || 0));
         const unpaidOrder: UnpaidOrder = {
           id: order.id,
           laundry_date: order.laundry_date,
           category: order.category,
           weight_kg: order.weight_kg,
           item_count: order.item_count,
-          total_price: order.total_price || 0,
+          total_price: outstanding,
+          wadiah_used: order.wadiah_used || 0,
           status: order.status,
           partner_name: order.laundry_partners?.name || "-",
           created_at: order.created_at,
@@ -253,7 +257,7 @@ export function StudentArrearsReport() {
 
         const student = studentMap.get(studentId)!;
         student.total_unpaid_orders++;
-        student.total_unpaid_amount += order.total_price || 0;
+        student.total_unpaid_amount += outstanding;
         student.orders.push(unpaidOrder);
 
         // Track oldest order

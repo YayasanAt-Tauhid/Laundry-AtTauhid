@@ -19,6 +19,7 @@ test('unpaid corrections preserve history, reset approval and prevent stale paym
   await db.exec(await readFile(new URL('../supabase/migrations/20261006070356_paid_order_corrections.sql', import.meta.url), 'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/20261006080550_unpaid_order_revisions.sql', import.meta.url), 'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/20261007001900_cancel_unpaid_orders.sql', import.meta.url), 'utf8'));
+  await db.exec(await readFile(new URL('../supabase/migrations/20261007012430_wadiah_midtrans_reconciliation.sql', import.meta.url), 'utf8'));
   const uid = n => `00000000-0000-0000-0000-${String(n).padStart(12,'0')}`;
   const [admin,staff,cashier,parent,newParent,partner,otherPartner,outsider] = [1,2,3,4,5,6,7,8].map(uid);
   const [student,otherStudent,inactiveStudent,partnerId,newPartnerId] = [11,12,13,20,21].map(uid);
@@ -43,7 +44,7 @@ test('unpaid corrections preserve history, reset approval and prevent stale paym
   };
   const cancel = (o,reason='Tagihan salah input dan harus dibatalkan') =>
     row('select cancel_unpaid_order($1,$2,$3) as id',[o.id,o.updated_at,reason]);
-  const snapshot = o => ({id:o.id,updated_at:o.updated_at,total_price:o.total_price,student_id:o.student_id});
+  const snapshot = o => ({id:o.id,updated_at:o.updated_at,total_price:o.total_price,student_id:o.student_id,wadiah_used:o.wadiah_used??0});
   const attach = orders => db.query("select attach_laundry_payment($1::jsonb,'LAUNDRY-ATTAUHID-BULK-TEST','UNSHARED_TOKEN')",[JSON.stringify(orders.map(snapshot))]);
   let revisedOrder;
 
@@ -85,6 +86,73 @@ test('unpaid corrections preserve history, reset approval and prevent stale paym
     await owner(()=>assert.rejects(()=>db.query('delete from laundry_orders where id=$1',[cancelled.id]),/tidak boleh dihapus permanen/));
     await actor(null,'service_role'); await assert.rejects(()=>attach([cancelled]),/Tagihan berubah/);
   });
+  await t.test('partial wadiah is idempotent and cancellation refunds it exactly once', async()=>{
+    const o=await newOrder();
+    await owner(()=>db.query('insert into student_wadiah_balance(student_id,balance,total_used) values($1,10000,0)',[student]));
+    await actor(parent);
+    const first=await row('select parent_pay_order_with_wadiah($1,$2,3000) result',[student,o.id]);
+    assert.equal(first.result.success,true); assert.equal(first.result.amount_used,3000); assert.equal(first.result.remaining_amount,67000);
+    const second=await row('select parent_pay_order_with_wadiah($1,$2,3000) result',[student,o.id]);
+    assert.equal(second.result.success,true); assert.equal(second.result.amount_used,0);
+    const third=await row('select parent_pay_order_with_wadiah($1,$2,5000) result',[student,o.id]);
+    assert.equal(third.result.success,true); assert.equal(third.result.amount_used,2000); assert.equal(third.result.remaining_amount,65000);
+    await owner(async()=>{
+      assert.equal((await row('select balance from student_wadiah_balance where student_id=$1',[student])).balance,5000);
+      assert.equal((await row("select coalesce(sum(amount),0)::int n from wadiah_transactions where order_id=$1 and transaction_type='payment'",[o.id])).n,5000);
+    });
+    const current=await owner(()=>row('select * from laundry_orders where id=$1',[o.id]));
+    await actor(admin); await cancel(current,'Tagihan salah dan Wadiah harus dikembalikan');
+    await owner(async()=>{
+      const n=await row('select * from laundry_orders where id=$1',[o.id]);
+      assert.equal(n.status,'DIBATALKAN'); assert.equal(n.wadiah_used,0);
+      assert.equal((await row('select balance from student_wadiah_balance where student_id=$1',[student])).balance,10000);
+      assert.equal((await row("select coalesce(sum(amount),0)::int n from wadiah_transactions where order_id=$1 and transaction_type='refund'",[o.id])).n,5000);
+      assert.equal((await row("select count(*)::int n from wadiah_transactions where order_id=$1 and transaction_type='refund'",[o.id])).n,1);
+    });
+  });
+  await t.test('cancellation refuses inconsistent wadiah history without creating a refund',async()=>{
+    const o=await newOrder();
+    const current=await owner(async()=>{
+      await db.query('insert into student_wadiah_balance(student_id,balance,total_used) values($1,9000,1000) on conflict(student_id) do update set balance=9000,total_used=1000',[student]);
+      await db.query("insert into wadiah_transactions(student_id,order_id,transaction_type,amount,balance_before,balance_after) values($1,$2,'payment',1000,10000,9000)",[student,o.id]);
+      return row('update laundry_orders set wadiah_used=2000 where id=$1 returning *',[o.id]);
+    });
+    await actor(admin); await assert.rejects(()=>cancel(current,'Jejak Wadiah sengaja dibuat tidak cocok'),/Jejak Wadiah tidak cocok/);
+    await owner(async()=>{
+      assert.equal((await row("select count(*)::int n from wadiah_transactions where order_id=$1 and transaction_type='refund'",[o.id])).n,0);
+      assert.notEqual((await row('select status from laundry_orders where id=$1',[o.id])).status,'DIBATALKAN');
+    });
+  });
+  await t.test('expired gateway reconciliation clears only unpaid links and is audited',async()=>{
+    const a=await newOrder(), b=await newOrder();
+    await actor(null,'service_role'); await attach([a,b]);
+    const n=await row("select reconcile_expired_laundry_payment('LAUNDRY-ATTAUHID-BULK-TEST','expire',null) n");
+    assert.equal(n.n,2);
+    await owner(async()=>{
+      for(const id of [a.id,b.id]) {
+        const o=await row('select * from laundry_orders where id=$1',[id]);
+        assert.equal(o.midtrans_order_id,null); assert.equal(o.midtrans_snap_token,null);
+      }
+      assert.equal((await row("select count(*)::int n from audit_logs where table_name='laundry_orders' and new_data->>'gateway_terminal_status'='expire'")).n,2);
+    });
+  });
+  await t.test('gateway settlement validates the net amount after wadiah and records paid amount per order',async()=>{
+    const a=await newOrder(), b=await newOrder();
+    await owner(()=>db.query('insert into student_wadiah_balance(student_id,balance,total_used) values($1,10000,0) on conflict(student_id) do update set balance=10000,total_used=0',[student]));
+    await actor(parent); await row('select parent_pay_order_with_wadiah($1,$2,5000) result',[student,a.id]);
+    const aa=await owner(()=>row('select * from laundry_orders where id=$1',[a.id]));
+    const bb=await owner(()=>row('select * from laundry_orders where id=$1',[b.id]));
+    await actor(null,'service_role'); await attach([aa,bb]);
+    await assert.rejects(()=>row("select settle_laundry_payment_group('LAUNDRY-ATTAUHID-BULK-TEST','qris',now(),140000) n"),/Nominal Midtrans tidak cocok/);
+    const settled=await row("select settle_laundry_payment_group('LAUNDRY-ATTAUHID-BULK-TEST','qris',now(),135000) n");
+    assert.equal(settled.n,2);
+    await owner(async()=>{
+      const pa=await row('select status,paid_amount,wadiah_used from laundry_orders where id=$1',[a.id]);
+      const pb=await row('select status,paid_amount,wadiah_used from laundry_orders where id=$1',[b.id]);
+      assert.equal(pa.status,'DIBAYAR'); assert.equal(pa.paid_amount,65000); assert.equal(pa.wadiah_used,5000);
+      assert.equal(pb.status,'DIBAYAR'); assert.equal(pb.paid_amount,70000); assert.equal(pb.wadiah_used,0);
+    });
+  });
   await t.test('all unpaid states recalculate tariffs and reset approval without touching funds', async () => {
     for(const [i,status] of ['DRAFT','MENUNGGU_APPROVAL_MITRA','DITOLAK_MITRA','DISETUJUI_MITRA','MENUNGGU_PEMBAYARAN'].entries()) {
       const o=await newOrder(status); await actor([admin,staff,cashier][i%3]); const r=await correct(o);
@@ -98,7 +166,7 @@ test('unpaid corrections preserve history, reset approval and prevent stale paym
         assert.equal(h.before_snapshot.total_price,70000); assert.equal(h.after_snapshot.total_price,42000);
         assert.equal(h.before_snapshot.midtrans_snap_token,undefined);
         assert.equal((await row("select count(*)::int n from audit_logs where table_name='unpaid_order_revisions' and record_id=$1",[r.id])).n,1);
-        assert.equal((await row('select count(*)::int n from wadiah_transactions')).n,0);
+        assert.equal((await row('select count(*)::int n from wadiah_transactions where order_id=$1',[n.id])).n,0);
       });
       revisedOrder=o;
     }

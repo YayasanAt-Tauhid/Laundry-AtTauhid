@@ -1,5 +1,6 @@
 // Get Payment Info
-// Retrieves payment information for public payment page
+// Retrieves payment information for public payment page.
+// Terminal Midtrans links are also reconciled server-side before regeneration.
 // Token is the midtrans_order_id stored in the order
 //
 // SECURITY NOTE: This is intentionally a public endpoint (no auth required)
@@ -19,6 +20,8 @@ function mapOrderItems(orders: any[]) {
     weight_kg: o.weight_kg,
     item_count: o.item_count,
     total_price: o.total_price || 0,
+    wadiah_used: o.wadiah_used || 0,
+    amount_due: Math.max((o.total_price || 0) - (o.wadiah_used || 0), 0),
     laundry_date: o.laundry_date,
   }));
 }
@@ -63,6 +66,7 @@ serve(async (req) => {
       .select(`
         id,
         total_price,
+        wadiah_used,
         status,
         midtrans_order_id,
         midtrans_snap_token,
@@ -90,6 +94,7 @@ serve(async (req) => {
         .select(`
           id,
           total_price,
+          wadiah_used,
           status,
           midtrans_order_id,
           category,
@@ -106,7 +111,7 @@ serve(async (req) => {
       if (existingOrders && existingOrders.length > 0) {
         const firstStatus = existingOrders[0].status;
         const student = existingOrders[0].student as { name: string; class: string } | null;
-        const totalAmount = existingOrders.reduce((sum, o) => sum + (o.total_price || 0), 0);
+        const totalAmount = existingOrders.reduce((sum, o) => sum + Math.max((o.total_price || 0) - (o.wadiah_used || 0), 0), 0);
 
         if (firstStatus === "DIBAYAR" || firstStatus === "SELESAI") {
           return new Response(
@@ -152,7 +157,7 @@ serve(async (req) => {
       throw new Error("Data siswa tidak ditemukan");
     }
 
-    const totalAmount = orders.reduce((sum, o) => sum + (o.total_price || 0), 0);
+    const totalAmount = orders.reduce((sum, o) => sum + Math.max((o.total_price || 0) - (o.wadiah_used || 0), 0), 0);
     const snapToken = firstOrder.midtrans_snap_token;
 
     if (!snapToken) {
@@ -181,9 +186,24 @@ serve(async (req) => {
         
         const expiredStatuses = ["expire", "deny", "cancel"];
         if (statusResponse.ok && expiredStatuses.includes(statusData.transaction_status)) {
+          const { data: reconciledCount, error: reconcileError } = await supabase.rpc(
+            "reconcile_expired_laundry_payment",
+            {
+              p_midtrans_order_id: token,
+              p_terminal_status: statusData.transaction_status,
+              p_actor_id: null,
+            },
+          );
+          if (reconcileError) {
+            console.error("Failed to reconcile expired payment:", reconcileError);
+            throw new Error("Transaksi sudah kedaluwarsa tetapi rekonsiliasi database gagal");
+          }
           return new Response(
             JSON.stringify({
               expired: true,
+              reconciled: true,
+              reconciledCount: reconciledCount || 0,
+              terminalStatus: statusData.transaction_status,
               studentName: student.name,
               studentClass: student.class,
               orderCount: orders.length,

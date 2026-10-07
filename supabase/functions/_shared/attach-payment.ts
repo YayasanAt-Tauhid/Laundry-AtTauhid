@@ -1,4 +1,10 @@
-type PaymentSnapshot = { id: string; updated_at: string; total_price: number; student_id: string };
+type PaymentSnapshot = {
+  id: string;
+  updated_at: string;
+  total_price: number;
+  student_id: string;
+  wadiah_used?: number | null;
+};
 type PaymentClient = {
   rpc(name: string, args: Record<string, unknown>): PromiseLike<{ error: { message: string } | null }>;
 };
@@ -13,7 +19,13 @@ export async function attachPaymentSnapshot(
   token: string,
 ) {
   const { error } = await client.rpc("attach_laundry_payment", {
-    p_orders: orders.map(o => ({ id: o.id, updated_at: o.updated_at, total_price: o.total_price, student_id: o.student_id })),
+    p_orders: orders.map(o => ({
+      id: o.id,
+      updated_at: o.updated_at,
+      total_price: o.total_price,
+      student_id: o.student_id,
+      wadiah_used: o.wadiah_used ?? 0,
+    })),
     p_midtrans_order_id: midtransOrderId,
     p_snap_token: token,
   });

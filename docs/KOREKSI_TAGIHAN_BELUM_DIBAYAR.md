@@ -22,3 +22,20 @@ Jalankan `npm run test:corrections`, `node --test tests/unpaid-corrections.test.
 Jika tagihan memang tidak semestinya ada, admin, petugas, atau kasir memakai **Batalkan Tagihan**, bukan menghapus row. Alasan pembatalan minimal 10 karakter wajib diisi. Sistem hanya mengubah status menjadi **DIBATALKAN**; siswa, mitra, kategori, berat/jumlah, nominal, bagi hasil, dan data asli tetap tersimpan. Snapshot sebelum/sesudah, pelaku, waktu, dan alasan dicatat pada ledger `unpaid_order_revisions` serta audit log.
 
 Pembatalan hanya berlaku untuk status belum dibayar: **DRAFT**, **MENUNGGU_APPROVAL_MITRA**, **DITOLAK_MITRA**, **DISETUJUI_MITRA**, atau **MENUNGGU_PEMBAYARAN**. Tagihan dengan token/Order ID Midtrans aktif atau jejak pembayaran, wadiah, kembalian, maupun pembulatan diblokir sampai direkonsiliasi. Setelah dibatalkan, order dikunci dari perubahan dan penghapusan permanen, tidak muncul sebagai tunggakan/pendapatan/tagihan aktif, tetapi tetap dapat dilihat sebagai histori dengan filter **Dibatalkan**.
+
+
+## Pembayaran sebagian Wadiah + Midtrans
+
+- `wadiah_used` adalah pembayaran sebagian yang sudah sah dan mengurangi sisa kewajiban.
+- Nominal Midtrans selalu dihitung ulang di server sebagai `total_price - wadiah_used`; nilai nominal dari browser tidak dipercaya.
+- Pemakaian Wadiah bersifat idempotent: retry dengan target Wadiah yang sama tidak memotong saldo untuk kedua kali.
+- Settlement Midtrans diverifikasi terhadap total sisa seluruh tagihan dalam payment group sebelum status berubah menjadi `DIBAYAR`.
+- Browser tidak boleh menandai tagihan `DIBAYAR`; hanya webhook Midtrans yang sudah lolos verifikasi signature dan nominal yang menyelesaikan pembayaran.
+
+## Rekonsiliasi tautan Midtrans kedaluwarsa
+
+Sebelum koreksi atau pembatalan, tautan Midtrans yang masih menempel harus diperiksa ke Midtrans. Hanya status terminal `expire`, `cancel`, atau `deny` yang boleh melepaskan `midtrans_order_id` dan `midtrans_snap_token`. Pelepasan dicatat ke `audit_logs`. Token baru tidak boleh menimpa transaksi lama yang masih aktif.
+
+## Pembatalan tagihan yang sudah memakai Wadiah
+
+Jika tagihan belum lunas tetapi sudah memakai Wadiah dan tautan Midtrans sudah direkonsiliasi, `cancel_unpaid_order` mengembalikan Wadiah secara atomik sebelum mengubah status menjadi `DIBATALKAN`. Jumlah payment dan refund harus cocok dengan `wadiah_used`; jika histori tidak konsisten, pembatalan ditolak dan harus direkonsiliasi manual.

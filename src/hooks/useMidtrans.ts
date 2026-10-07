@@ -230,16 +230,8 @@ export function useMidtrans() {
           isPopupOpenRef.current = false;
           setIsProcessing(false);
 
-          // Update order status to DIBAYAR with payment method
-          await supabase
-            .from("laundry_orders")
-            .update({
-              status: "DIBAYAR",
-              paid_at: new Date().toISOString(),
-              payment_method: result.payment_type,
-            })
-            .eq("id", params.orderId);
-
+          // Do not write payment state from the browser. Midtrans webhook verifies
+          // the signature and gross amount before settling the order.
           toast({
             title: "Pembayaran Berhasil",
             description: "Terima kasih! Pembayaran Anda telah berhasil.",
@@ -462,18 +454,8 @@ export function useMidtrans() {
           isPopupOpenRef.current = false;
           setIsProcessing(false);
 
-          // Update all orders status to DIBAYAR
-          for (const orderId of params.orderIds) {
-            await supabase
-              .from("laundry_orders")
-              .update({
-                status: "DIBAYAR",
-                paid_at: new Date().toISOString(),
-                payment_method: result.payment_type,
-              })
-              .eq("id", orderId);
-          }
-
+          // Do not write bulk payment state from the browser. The verified
+          // webhook settles every order atomically against the server-side amount.
           toast({
             title: "Pembayaran Berhasil",
             description: `${params.orderIds.length} tagihan berhasil dibayar. Terima kasih!`,

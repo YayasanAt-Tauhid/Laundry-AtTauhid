@@ -6,6 +6,7 @@ interface ArrearsOrder {
   id: string;
   category: string;
   total_price: number;
+  wadiah_used: number;
   laundry_date: string;
   weight_kg: number | null;
   item_count: number | null;
@@ -38,7 +39,7 @@ export function useArrearsData() {
       const { data: orders, error } = await supabase
         .from("laundry_orders")
         .select(`
-          id, category, total_price, laundry_date, weight_kg, item_count,
+          id, category, total_price, wadiah_used, laundry_date, weight_kg, item_count,
           students!inner(id, name, class, nik, parent_id)
         `)
         .in("status", ["DISETUJUI_MITRA", "MENUNGGU_PEMBAYARAN"])
@@ -70,15 +71,17 @@ export function useArrearsData() {
         }
 
         const entry = studentMap.get(key)!;
+        const outstanding = Math.max(0, order.total_price - (order.wadiah_used || 0));
         entry.orders.push({
           id: order.id,
           category: order.category,
-          total_price: order.total_price,
+          total_price: outstanding,
+          wadiah_used: order.wadiah_used || 0,
           laundry_date: order.laundry_date,
           weight_kg: order.weight_kg,
           item_count: order.item_count,
         });
-        entry.totalAmount += order.total_price;
+        entry.totalAmount += outstanding;
         entry.orderCount += 1;
       }
 
