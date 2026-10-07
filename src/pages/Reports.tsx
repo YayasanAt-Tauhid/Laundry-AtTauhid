@@ -229,7 +229,7 @@ export default function Reports() {
           laundry_partners (id, name)
         `,
         )
-        .not("status", "eq", "DITOLAK_MITRA");
+        .not("status", "in", '("DITOLAK_MITRA","DIBATALKAN")');
 
       // Apply date filter
       if (billStartDate) {
@@ -649,6 +649,7 @@ export default function Reports() {
       MENUNGGU_APPROVAL_MITRA: "Menunggu Approval",
       DISETUJUI_MITRA: "Disetujui Mitra",
       MENUNGGU_PEMBAYARAN: "Menunggu Pembayaran",
+      DIBATALKAN: "Dibatalkan",
       DIBAYAR: "Dibayar",
       SELESAI: "Selesai",
       DITOLAK_MITRA: "Ditolak",
@@ -660,7 +661,7 @@ export default function Reports() {
     if (status === "DIBAYAR" || status === "SELESAI") {
       return "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400";
     }
-    if (status === "DITOLAK_MITRA") {
+    if (status === "DITOLAK_MITRA" || status === "DIBATALKAN") {
       return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
     }
     return "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400";

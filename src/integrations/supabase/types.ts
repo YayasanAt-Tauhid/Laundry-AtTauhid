@@ -755,6 +755,10 @@ export type Database = {
         Args: { p_partner_id: string; p_cutoff_date: string; p_method: string; p_reference: string; p_note?: string | null }
         Returns: string
       }
+      cancel_unpaid_order: {
+        Args: { p_order_id: string; p_expected_updated_at: string; p_reason: string }
+        Returns: string
+      }
       correct_unpaid_order: {
         Args: { p_order_id: string; p_expected_updated_at: string; p_student_id: string; p_partner_id: string; p_category: Database["public"]["Enums"]["laundry_category"]; p_quantity: number; p_laundry_date: string; p_notes: string | null; p_reason: string }
         Returns: string
@@ -949,6 +953,7 @@ export type Database = {
         | "DITOLAK_MITRA"
         | "DISETUJUI_MITRA"
         | "MENUNGGU_PEMBAYARAN"
+        | "DIBATALKAN"
         | "DIBAYAR"
         | "SELESAI"
       rounding_policy: "none" | "round_down" | "round_up_ask" | "to_wadiah"
@@ -1102,6 +1107,7 @@ export const Constants = {
         "DITOLAK_MITRA",
         "DISETUJUI_MITRA",
         "MENUNGGU_PEMBAYARAN",
+        "DIBATALKAN",
         "DIBAYAR",
         "SELESAI",
       ],

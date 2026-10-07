@@ -95,6 +95,7 @@ const PARTNER_STATUS_OPTIONS = [
   { value: "DISETUJUI_MITRA", label: "Disetujui" },
   { value: "DITOLAK_MITRA", label: "Ditolak" },
   { value: "MENUNGGU_PEMBAYARAN", label: "Menunggu Pembayaran" },
+  { value: "DIBATALKAN", label: "Dibatalkan" },
   { value: "DIBAYAR", label: "Dibayar" },
   { value: "SELESAI", label: "Selesai" },
 ];
@@ -106,6 +107,7 @@ const ALL_STATUS_OPTIONS = [
   { value: "DITOLAK_MITRA", label: "Ditolak Mitra" },
   { value: "DISETUJUI_MITRA", label: "Disetujui Mitra" },
   { value: "MENUNGGU_PEMBAYARAN", label: "Menunggu Pembayaran" },
+  { value: "DIBATALKAN", label: "Dibatalkan" },
   { value: "DIBAYAR", label: "Dibayar" },
   { value: "SELESAI", label: "Selesai" },
 ];

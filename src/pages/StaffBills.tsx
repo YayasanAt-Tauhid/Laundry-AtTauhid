@@ -82,9 +82,11 @@ export default function StaffBills() {
         { count: "exact" },
       );
 
-      // Apply status filter
+      // Cancelled bills stay available as history, but are not active bills by default.
       if (statusFilter !== "all") {
         query = query.eq("status", statusFilter as OrderStatus);
+      } else {
+        query = query.neq("status", "DIBATALKAN");
       }
 
       // Apply category filter
@@ -251,6 +253,7 @@ export default function StaffBills() {
               <SelectItem value="MENUNGGU_PEMBAYARAN">
                 Menunggu Pembayaran
               </SelectItem>
+              <SelectItem value="DIBATALKAN">Dibatalkan</SelectItem>
               <SelectItem value="DIBAYAR">Dibayar</SelectItem>
               <SelectItem value="SELESAI">Selesai</SelectItem>
               <SelectItem value="DITOLAK_MITRA">Ditolak</SelectItem>

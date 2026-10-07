@@ -72,6 +72,7 @@ export default function Dashboard() {
           )
         `,
         )
+        .neq("status", "DIBATALKAN")
         .order("laundry_date", { ascending: false })
         .limit(10);
 

@@ -16,3 +16,9 @@ Simpan memakai versi tagihan saat formulir dibuka. Jika tagihan berubah bersamaa
 4. Rilis frontend sesudah migration dan edge functions aktif. Verifikasi deployment; jangan menjalankan koreksi/refund nyata untuk pengujian production.
 
 Jalankan `npm run test:corrections`, `node --test tests/unpaid-corrections.test.mjs`, TypeScript, lint komponen baru, dan build production. Fixture lokal menggunakan PGlite dan fungsi harga/wadiah dari production; pengujian ini bukan integrasi penuh dengan Midtrans.
+
+## Membatalkan tagihan yang salah
+
+Jika tagihan memang tidak semestinya ada, admin, petugas, atau kasir memakai **Batalkan Tagihan**, bukan menghapus row. Alasan pembatalan minimal 10 karakter wajib diisi. Sistem hanya mengubah status menjadi **DIBATALKAN**; siswa, mitra, kategori, berat/jumlah, nominal, bagi hasil, dan data asli tetap tersimpan. Snapshot sebelum/sesudah, pelaku, waktu, dan alasan dicatat pada ledger `unpaid_order_revisions` serta audit log.
+
+Pembatalan hanya berlaku untuk status belum dibayar: **DRAFT**, **MENUNGGU_APPROVAL_MITRA**, **DITOLAK_MITRA**, **DISETUJUI_MITRA**, atau **MENUNGGU_PEMBAYARAN**. Tagihan dengan token/Order ID Midtrans aktif atau jejak pembayaran, wadiah, kembalian, maupun pembulatan diblokir sampai direkonsiliasi. Setelah dibatalkan, order dikunci dari perubahan dan penghapusan permanen, tidak muncul sebagai tunggakan/pendapatan/tagihan aktif, tetapi tetap dapat dilihat sebagai histori dengan filter **Dibatalkan**.

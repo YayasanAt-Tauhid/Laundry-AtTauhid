@@ -255,6 +255,7 @@ function BillRowComponent({ bill, onOpenDetail }: BillRowComponentProps) {
       case "SELESAI":
         return "bg-green-50/50 dark:bg-green-950/20";
       case "DITOLAK_MITRA":
+      case "DIBATALKAN":
         return "bg-red-50/50 dark:bg-red-950/20";
       case "MENUNGGU_APPROVAL_MITRA":
         return "bg-amber-50/50 dark:bg-amber-950/20";

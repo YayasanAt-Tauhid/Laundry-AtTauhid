@@ -38,6 +38,7 @@ export const ORDER_STATUS = {
     label: "Menunggu Pembayaran",
     color: "status-pending",
   },
+  DIBATALKAN: { label: "Dibatalkan", color: "status-rejected" },
   DIBAYAR: { label: "Dibayar", color: "status-paid" },
   SELESAI: { label: "Selesai", color: "status-paid" },
 } as const;
