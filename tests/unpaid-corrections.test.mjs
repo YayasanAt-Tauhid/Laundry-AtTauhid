@@ -82,7 +82,7 @@ test('unpaid corrections preserve history, reset approval and prevent stale paym
     await assert.rejects(()=>db.query("update laundry_orders set status='DIBATALKAN' where id=$1",[direct.id]),/Batalkan Tagihan/);
     const cancelled=await newOrder(); await actor(admin); await cancel(cancelled);
     await assert.rejects(()=>db.query("update laundry_orders set notes='hidup lagi' where id=$1",[cancelled.id]),/dikunci/);
-    await assert.rejects(()=>db.query('delete from laundry_orders where id=$1',[cancelled.id]),/tidak boleh dihapus permanen/);
+    await owner(()=>assert.rejects(()=>db.query('delete from laundry_orders where id=$1',[cancelled.id]),/tidak boleh dihapus permanen/));
     await actor(null,'service_role'); await assert.rejects(()=>attach([cancelled]),/Tagihan berubah/);
   });
   await t.test('all unpaid states recalculate tariffs and reset approval without touching funds', async () => {
