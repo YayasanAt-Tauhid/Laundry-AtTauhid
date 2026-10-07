@@ -35,6 +35,7 @@ import {
   CreditCard,
   AlertTriangle,
 } from "lucide-react";
+import { PartnerPeriodPayment } from "@/components/reports/PartnerPeriodPayment";
 import { MidtransPaymentReport } from "@/components/reports/MidtransPaymentReport";
 import { StudentArrearsReport } from "@/components/reports/StudentArrearsReport";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -1735,6 +1736,10 @@ export default function Reports() {
                 </div>
               </CardContent>
             </Card>
+
+            <PartnerPeriodPayment partnerId={selectedPartnerId}
+              partnerName={partners.find(p => p.id === selectedPartnerId)?.name ?? "Mitra"}
+              start={billStartDate} end={billEndDate} onRecorded={() => void fetchBillReport()} />
 
             {loadingBillReport ? (
               <div className="flex items-center justify-center py-12">
