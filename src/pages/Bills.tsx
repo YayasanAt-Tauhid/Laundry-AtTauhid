@@ -79,6 +79,7 @@ interface StudentWadiahBalance {
 }
 
 const PAGE_SIZE = 20;
+const outstandingAmount = (bill: Pick<Bill, "total_price" | "wadiah_used">) => Math.max(0, bill.total_price - (bill.wadiah_used || 0));
 
 export default function Bills() {
   const { toast } = useToast();
@@ -325,7 +326,7 @@ export default function Bills() {
   const openWadiahPaymentDialog = (bill: Bill) => {
     setSelectedBillForWadiah(bill);
     const studentBalance = getStudentBalance(bill.students?.id);
-    const maxUsable = Math.min(studentBalance, bill.total_price);
+    const maxUsable = Math.min(studentBalance, outstandingAmount(bill));
     setWadiahAmountToUse(maxUsable);
     setUseWadiahBalance(maxUsable > 0);
     setShowWadiahPaymentDialog(true);
@@ -347,10 +348,12 @@ export default function Bills() {
       return;
     }
 
-    const wadiahToUse = useWadiahBalance ? wadiahAmountToUse : 0;
-    const remainingAmount = bill.total_price - wadiahToUse;
+    const existingWadiah = bill.wadiah_used || 0;
+    const additionalWadiah = useWadiahBalance ? wadiahAmountToUse : 0;
+    const wadiahTarget = existingWadiah + additionalWadiah;
+    const remainingAmount = bill.total_price - wadiahTarget;
 
-    if (wadiahToUse <= 0) {
+    if (additionalWadiah <= 0) {
       // No wadiah to use, just go to Midtrans
       setShowWadiahPaymentDialog(false);
       setSelectedBillForWadiah(null);
@@ -373,7 +376,7 @@ export default function Bills() {
         {
           p_student_id: studentId,
           p_order_id: bill.id,
-          p_wadiah_amount: wadiahToUse,
+          p_wadiah_amount: wadiahTarget,
         },
       );
 
@@ -410,7 +413,7 @@ export default function Bills() {
           title: "Saldo Wadiah Digunakan",
           description:
             result.message ||
-            `Wadiah ${formatCurrency(wadiahToUse)} digunakan. Lanjutkan pembayaran sisa.`,
+            `Tambahan Wadiah ${formatCurrency(additionalWadiah)} digunakan. Lanjutkan pembayaran sisa.`,
         });
 
         setShowWadiahPaymentDialog(false);
@@ -485,7 +488,7 @@ export default function Bills() {
       selectedBills.has(b.id),
     );
     const totalAmountPreview = selectedBillsListPreview.reduce(
-      (sum, b) => sum + b.total_price,
+      (sum, b) => sum + outstandingAmount(b),
       0,
     );
     const wadiahToUsePreview = bulkUseWadiah ? bulkWadiahAmount : 0;
@@ -513,11 +516,10 @@ export default function Bills() {
         selectedBills.has(b.id),
       );
       const totalAmount = selectedBillsList.reduce(
-        (sum, b) => sum + b.total_price,
+        (sum, b) => sum + outstandingAmount(b),
         0,
       );
       const wadiahToUse = bulkUseWadiah ? bulkWadiahAmount : 0;
-      const remainingAmount = totalAmount - wadiahToUse;
 
       // Group bills by student for wadiah deduction
       const billsByStudent = new Map<string, Bill[]>();
@@ -534,11 +536,11 @@ export default function Bills() {
       // Process wadiah for each student using secure function
       let totalWadiahUsed = 0;
       let allFullyPaid = true;
-      const processedBills: string[] = [];
+      const fullyPaidBills = new Set<string>();
 
       for (const [studentId, bills] of billsByStudent) {
         const studentBalance = getStudentBalance(studentId);
-        const studentTotal = bills.reduce((sum, b) => sum + b.total_price, 0);
+        const studentTotal = bills.reduce((sum, b) => sum + outstandingAmount(b), 0);
         const wadiahForStudent = Math.min(
           studentBalance,
           studentTotal,
@@ -548,9 +550,10 @@ export default function Bills() {
         if (wadiahForStudent > 0) {
           // Process each bill for this student
           for (const bill of bills) {
+            const billOutstanding = outstandingAmount(bill);
             const billWadiahPortion = Math.min(
-              Math.round((bill.total_price / studentTotal) * wadiahForStudent),
-              bill.total_price,
+              Math.round((billOutstanding / studentTotal) * wadiahForStudent),
+              billOutstanding,
             );
 
             if (billWadiahPortion > 0) {
@@ -560,7 +563,7 @@ export default function Bills() {
                 {
                   p_student_id: studentId,
                   p_order_id: bill.id,
-                  p_wadiah_amount: billWadiahPortion,
+                  p_wadiah_amount: (bill.wadiah_used || 0) + billWadiahPortion,
                 },
               );
 
@@ -577,14 +580,15 @@ export default function Bills() {
                 error?: string;
                 payment_complete?: boolean;
                 wadiah_used?: number;
+                amount_used?: number;
               };
 
               if (result.success) {
-                totalWadiahUsed += result.wadiah_used || billWadiahPortion;
-                processedBills.push(bill.id);
-
+                totalWadiahUsed += result.amount_used ?? billWadiahPortion;
                 if (!result.payment_complete) {
                   allFullyPaid = false;
+                } else {
+                  fullyPaidBills.add(bill.id);
                 }
               }
             }
@@ -612,11 +616,12 @@ export default function Bills() {
         setShowBulkWadiahDialog(false);
 
         // Filter out fully paid bills from Midtrans payment
+        const remainingAfterWadiah = Math.max(0, totalAmount - totalWadiahUsed);
         const unpaidOrderIds = selectedBillsList
-          .filter((b) => !processedBills.includes(b.id) || remainingAmount > 0)
+          .filter((b) => !fullyPaidBills.has(b.id))
           .map((b) => b.id);
 
-        if (unpaidOrderIds.length > 0 && remainingAmount > 0) {
+        if (unpaidOrderIds.length > 0 && remainingAfterWadiah > 0) {
           setIsPayingAll(true);
 
           const studentNames = [
@@ -626,8 +631,8 @@ export default function Bills() {
           await processBulkPayment(
             {
               orderIds: unpaidOrderIds,
-              grossAmount: remainingAmount,
-              description: `Pembayaran ${selectedBillsList.length} tagihan laundry (setelah potongan wadiah ${formatCurrency(totalWadiahUsed)})`,
+              grossAmount: remainingAfterWadiah,
+              description: `Pembayaran ${unpaidOrderIds.length} tagihan laundry (setelah tambahan Wadiah ${formatCurrency(totalWadiahUsed)})`,
               studentNames: studentNames,
               customerEmail: profile?.email || undefined,
               customerPhone: profile?.phone || undefined,
@@ -670,7 +675,7 @@ export default function Bills() {
       await processPayment(
         {
           orderId: bill.id,
-          grossAmount: bill.total_price,
+          grossAmount: outstandingAmount(bill),
           studentName: bill.students?.name || "Unknown",
           category:
             LAUNDRY_CATEGORIES[
@@ -717,7 +722,7 @@ export default function Bills() {
         selectedBills.has(b.id),
       );
       const totalAmount = selectedBillsList.reduce(
-        (sum, b) => sum + b.total_price,
+        (sum, b) => sum + outstandingAmount(b),
         0,
       );
       const orderIds = selectedBillsList.map((b) => b.id);
@@ -826,10 +831,10 @@ export default function Bills() {
     return studentIds.reduce((sum, id) => sum + getStudentBalance(id), 0);
   };
 
-  const totalUnpaid = unpaidBills.reduce((sum, b) => sum + b.total_price, 0);
+  const totalUnpaid = unpaidBills.reduce((sum, b) => sum + outstandingAmount(b), 0);
   const selectedTotal = unpaidBills
     .filter((b) => selectedBills.has(b.id))
-    .reduce((sum, b) => sum + b.total_price, 0);
+    .reduce((sum, b) => sum + outstandingAmount(b), 0);
 
   const isCashier = userRole === "cashier";
 
@@ -840,13 +845,15 @@ export default function Bills() {
       selectedBillForWadiah.students?.id,
     );
     const totalAmount = selectedBillForWadiah.total_price;
+    const alreadyUsed = selectedBillForWadiah.wadiah_used || 0;
     const wadiahToUse = useWadiahBalance ? wadiahAmountToUse : 0;
-    const remainingAmount = Math.max(0, totalAmount - wadiahToUse);
-    const canPayFullWithWadiah = studentBalance >= totalAmount;
+    const remainingAmount = Math.max(0, totalAmount - alreadyUsed - wadiahToUse);
+    const canPayFullWithWadiah = studentBalance >= Math.max(0, totalAmount - alreadyUsed);
 
     return {
       studentBalance,
       totalAmount,
+      alreadyUsed,
       wadiahToUse,
       remainingAmount,
       canPayFullWithWadiah,
@@ -1121,8 +1128,13 @@ export default function Bills() {
                             <div className="flex items-center gap-4">
                               <div className="text-right">
                                 <p className="text-xl font-bold text-primary mt-1">
-                                  {formatCurrency(bill.total_price)}
+                                  {formatCurrency(outstandingAmount(bill))}
                                 </p>
+                                {(bill.wadiah_used || 0) > 0 && (
+                                  <p className="text-xs text-muted-foreground">
+                                    Tagihan {formatCurrency(bill.total_price)} · Wadiah terpakai {formatCurrency(bill.wadiah_used || 0)}
+                                  </p>
+                                )}
                                 <StatusBadge status={bill.status} />
                               </div>
                               <div className="flex flex-col gap-2">
