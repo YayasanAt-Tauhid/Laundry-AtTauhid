@@ -18,6 +18,7 @@ test('unpaid corrections preserve history, reset approval and prevent stale paym
     grant update on laundry_orders to authenticated;`);
   await db.exec(await readFile(new URL('../supabase/migrations/20261006070356_paid_order_corrections.sql', import.meta.url), 'utf8'));
   await db.exec(await readFile(new URL('../supabase/migrations/20261006080550_unpaid_order_revisions.sql', import.meta.url), 'utf8'));
+  await db.exec(await readFile(new URL('../supabase/migrations/20261007001900_cancel_unpaid_orders.sql', import.meta.url), 'utf8'));
   const uid = n => `00000000-0000-0000-0000-${String(n).padStart(12,'0')}`;
   const [admin,staff,cashier,parent,newParent,partner,otherPartner,outsider] = [1,2,3,4,5,6,7,8].map(uid);
   const [student,otherStudent,inactiveStudent,partnerId,newPartnerId] = [11,12,13,20,21].map(uid);
@@ -40,6 +41,8 @@ test('unpaid corrections preserve history, reset approval and prevent stale paym
     return row('select correct_unpaid_order($1,$2,$3,$4,$5,$6,$7,$8,$9) as id',
       [o.id,o.updated_at,p.student,p.partnerId,p.category,p.quantity,p.date,p.notes,p.reason]);
   };
+  const cancel = (o,reason='Tagihan salah input dan harus dibatalkan') =>
+    row('select cancel_unpaid_order($1,$2,$3) as id',[o.id,o.updated_at,reason]);
   const snapshot = o => ({id:o.id,updated_at:o.updated_at,total_price:o.total_price,student_id:o.student_id});
   const attach = orders => db.query("select attach_laundry_payment($1::jsonb,'LAUNDRY-ATTAUHID-BULK-TEST','UNSHARED_TOKEN')",[JSON.stringify(orders.map(snapshot))]);
   let revisedOrder;
@@ -48,6 +51,39 @@ test('unpaid corrections preserve history, reset approval and prevent stale paym
     const o=await newOrder();
     for(const id of [null,parent,partner,outsider]) { await actor(id); await assert.rejects(()=>correct(o),/Tidak berwenang/); }
     await actor(null,'anon'); await assert.rejects(()=>correct(o),/permission denied/);
+  });
+  await t.test('only admin, staff and cashier can cancel; all unpaid states keep original economics and audit history', async () => {
+    const denied=await newOrder(); await actor(parent); await assert.rejects(()=>cancel(denied),/Tidak berwenang/);
+    for(const [i,status] of ['DRAFT','MENUNGGU_APPROVAL_MITRA','DITOLAK_MITRA','DISETUJUI_MITRA','MENUNGGU_PEMBAYARAN'].entries()) {
+      const o=await newOrder(status); await actor([admin,staff,cashier][i%3]); const r=await cancel(o);
+      await owner(async()=>{
+        const n=await row('select * from laundry_orders where id=$1',[o.id]);
+        assert.equal(n.status,'DIBATALKAN'); assert.equal(n.student_id,o.student_id); assert.equal(n.partner_id,o.partner_id);
+        assert.equal(n.total_price,70000); assert.equal(n.yayasan_share,20000); assert.equal(n.vendor_share,50000);
+        assert.equal(n.paid_at,null); assert.equal(n.paid_amount,null); assert.equal(n.wadiah_used,0);
+        const h=await row('select * from unpaid_order_revisions where id=$1',[r.id]);
+        assert.equal(h.before_snapshot.status,status); assert.equal(h.after_snapshot.status,'DIBATALKAN');
+        assert.equal(h.before_snapshot.total_price,70000); assert.equal(h.after_snapshot.total_price,70000);
+        assert.equal(h.reason,'Tagihan salah input dan harus dibatalkan');
+        assert.equal((await row("select count(*)::int n from audit_logs where table_name='unpaid_order_revisions' and record_id=$1",[r.id])).n,1);
+      });
+    }
+  });
+  await t.test('cancel rejects stale, paid, gateway-linked or funded bills; cancelled rows cannot revive or be deleted', async () => {
+    const short=await newOrder(); await actor(admin); await assert.rejects(()=>cancel(short,'Salah'),/10 sampai 2000/);
+    const stale=await newOrder(); await owner(()=>db.query("update laundry_orders set notes='berubah' where id=$1",[stale.id]));
+    await actor(admin); await assert.rejects(()=>cancel(stale),/berubah sejak dibuka/);
+    const gateway=await newOrder(); const g=await owner(()=>row("update laundry_orders set midtrans_order_id='LINK' where id=$1 returning *",[gateway.id]));
+    await actor(admin); await assert.rejects(()=>cancel(g),/Midtrans/);
+    const funded=await newOrder(); const p=await owner(()=>row('update laundry_orders set paid_amount=1 where id=$1 returning *',[funded.id]));
+    await actor(admin); await assert.rejects(()=>cancel(p),/jejak pembayaran/);
+    for(const status of ['DIBAYAR','SELESAI']) { const o=await newOrder(status); await actor(admin); await assert.rejects(()=>cancel(o),/belum dibayar/); }
+    const direct=await newOrder(); await actor(admin);
+    await assert.rejects(()=>db.query("update laundry_orders set status='DIBATALKAN' where id=$1",[direct.id]),/Batalkan Tagihan/);
+    const cancelled=await newOrder(); await actor(admin); await cancel(cancelled);
+    await assert.rejects(()=>db.query("update laundry_orders set notes='hidup lagi' where id=$1",[cancelled.id]),/dikunci/);
+    await assert.rejects(()=>db.query('delete from laundry_orders where id=$1',[cancelled.id]),/tidak boleh dihapus permanen/);
+    await actor(null,'service_role'); await assert.rejects(()=>attach([cancelled]),/Tagihan berubah/);
   });
   await t.test('all unpaid states recalculate tariffs and reset approval without touching funds', async () => {
     for(const [i,status] of ['DRAFT','MENUNGGU_APPROVAL_MITRA','DITOLAK_MITRA','DISETUJUI_MITRA','MENUNGGU_PEMBAYARAN'].entries()) {
