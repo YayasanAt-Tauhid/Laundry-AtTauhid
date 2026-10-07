@@ -181,196 +181,66 @@ serve(async (req) => {
     const isBulkPayment = orderId.includes("-BULK-");
     const isSinglePayment = orderId.includes("-SINGLE-");
 
-    if (isBulkPayment) {
-      // ========== BULK PAYMENT ==========
-      console.log(`Processing BULK payment: ${orderId}`);
+    if (isBulkPayment || isSinglePayment) {
+      console.log(`Processing ${isBulkPayment ? "BULK" : "SINGLE"} payment: ${orderId}`);
 
-      const { data: orders, error: fetchError } = await supabaseClient
-        .from("laundry_orders")
-        .select("id")
-        .eq("midtrans_order_id", orderId);
-
-      if (fetchError) {
-        console.error("Error fetching orders for bulk payment:", fetchError);
-        throw fetchError;
-      }
-
-      if (!orders || orders.length === 0) {
-        console.log(`No orders found for bulk payment ${orderId}`);
-        return new Response(
-          JSON.stringify({
-            success: true,
-            message: "No orders found for this transaction",
-          }),
+      let affected = 0;
+      if (orderStatus === "DIBAYAR") {
+        const paidAt = midtransTimeToIso(
+          notification.settlement_time || notification.transaction_time,
+        ) || new Date().toISOString();
+        const parsedGrossAmount = Math.round(parseFloat(grossAmount));
+        const { data, error } = await supabaseClient.rpc(
+          "settle_laundry_payment_group",
           {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-            status: 200,
+            p_midtrans_order_id: orderId,
+            p_payment_method: mapPaymentMethod(notification.payment_type),
+            p_paid_at: paidAt,
+            p_gross_amount: parsedGrossAmount,
           },
         );
-      }
-
-      // Build update data.
-      // IMPORTANT: pending notifications must never downgrade a paid order.
-      // For pending we intentionally do not write the status column.
-      const updateData: Record<string, any> = {
-        payment_method: mapPaymentMethod(notification.payment_type),
-      };
-
-      if (transactionStatus !== "pending") {
-        updateData.status = orderStatus;
-      }
-
-      if (orderStatus === "DIBAYAR") {
-        updateData.paid_at = midtransTimeToIso(
-          notification.settlement_time || notification.transaction_time,
+        if (error) {
+          console.error("Failed to settle payment group:", error);
+          throw error;
+        }
+        affected = data || 0;
+      } else if (shouldClearSnapToken) {
+        const { data, error } = await supabaseClient.rpc(
+          "reconcile_expired_laundry_payment",
+          {
+            p_midtrans_order_id: orderId,
+            p_terminal_status: transactionStatus,
+            p_actor_id: null,
+          },
         );
-        // Distribute paid amount across orders
-        updateData.paid_amount = Math.floor(
-          parseFloat(grossAmount) / orders.length,
-        );
+        if (error) {
+          console.error("Failed to reconcile terminal payment:", error);
+          throw error;
+        }
+        affected = data || 0;
+      } else {
+        const { data, error } = await supabaseClient
+          .from("laundry_orders")
+          .update({ payment_method: mapPaymentMethod(notification.payment_type) })
+          .eq("midtrans_order_id", orderId)
+          .neq("status", "DIBAYAR")
+          .neq("status", "SELESAI")
+          .select("id");
+        if (error) throw error;
+        affected = data?.length || 0;
       }
 
-      if (shouldClearSnapToken) {
-        updateData.midtrans_order_id = null;
-        updateData.midtrans_snap_token = null;
-        updateData.notes =
-          transactionStatus === "expire"
-            ? "Pembayaran kedaluwarsa - silakan bayar ulang"
-            : transactionStatus === "cancel"
-              ? "Pembayaran dibatalkan - silakan bayar ulang"
-              : "Pembayaran ditolak - silakan bayar ulang";
-      }
-
-      // Update all orders.
-      // The status guard is part of the UPDATE itself, so stale pending/cancel/
-      // deny/expire webhooks cannot overwrite DIBAYAR even under concurrency.
-      const orderIds = orders.map((o: any) => o.id);
-      let updateQuery = supabaseClient
-        .from("laundry_orders")
-        .update(updateData)
-        .in("id", orderIds);
-
-      if (orderStatus !== "DIBAYAR") {
-        updateQuery = updateQuery.neq("status", "DIBAYAR");
-      }
-
-      const { error: updateError } = await updateQuery;
-
-      if (updateError) {
-        console.error("Failed to update bulk orders:", updateError);
-        throw updateError;
-      }
-
-      console.log(
-        `✓ Bulk payment ${orderId}: Updated ${orderIds.length} orders to status: ${orderStatus}`,
-      );
+      console.log(`✓ Payment ${orderId}: affected ${affected} orders, status=${orderStatus}`);
       console.log("════════════════════════════════════════");
-
       return new Response(
         JSON.stringify({
           success: true,
-          message: `Updated ${orderIds.length} orders`,
+          message: `Processed ${affected} orders`,
           order_id: orderId,
           status: orderStatus,
-          orders_updated: orderIds.length,
+          orders_updated: affected,
         }),
-        {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-          status: 200,
-        },
-      );
-    } else if (isSinglePayment) {
-      // ========== SINGLE PAYMENT ==========
-      console.log(`Processing SINGLE payment: ${orderId}`);
-
-      // Find order by midtrans_order_id
-      const { data: existingOrder, error: fetchError } = await supabaseClient
-        .from("laundry_orders")
-        .select("id, status")
-        .eq("midtrans_order_id", orderId)
-        .maybeSingle();
-
-      if (fetchError) {
-        console.error("Error fetching order:", fetchError);
-        throw fetchError;
-      }
-
-      if (!existingOrder) {
-        console.log(`Order ${orderId} not found`);
-        return new Response(
-          JSON.stringify({
-            success: true,
-            message: "Order not found",
-          }),
-          {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-            status: 200,
-          },
-        );
-      }
-
-      // Build update data.
-      // IMPORTANT: pending notifications must never downgrade a paid order.
-      // For pending we intentionally do not write the status column.
-      const updateData: Record<string, any> = {
-        payment_method: mapPaymentMethod(notification.payment_type),
-      };
-
-      if (transactionStatus !== "pending") {
-        updateData.status = orderStatus;
-      }
-
-      if (orderStatus === "DIBAYAR") {
-        updateData.paid_at = midtransTimeToIso(
-          notification.settlement_time || notification.transaction_time,
-        );
-        updateData.paid_amount = parseFloat(grossAmount);
-      }
-
-      if (shouldClearSnapToken) {
-        updateData.midtrans_order_id = null;
-        updateData.midtrans_snap_token = null;
-        updateData.notes =
-          transactionStatus === "expire"
-            ? "Pembayaran kedaluwarsa - silakan bayar ulang"
-            : transactionStatus === "cancel"
-              ? "Pembayaran dibatalkan - silakan bayar ulang"
-              : "Pembayaran ditolak - silakan bayar ulang";
-      }
-
-      // Update order.
-      // Keep the guard in SQL so this remains safe when Midtrans notifications
-      // are processed concurrently or arrive out of order.
-      let updateQuery = supabaseClient
-        .from("laundry_orders")
-        .update(updateData)
-        .eq("id", existingOrder.id);
-
-      if (orderStatus !== "DIBAYAR") {
-        updateQuery = updateQuery.neq("status", "DIBAYAR");
-      }
-
-      const { error: updateError } = await updateQuery;
-
-      if (updateError) {
-        console.error("Failed to update order:", updateError);
-        throw updateError;
-      }
-
-      console.log(`✓ Order ${orderId} updated to status: ${orderStatus}`);
-      console.log("════════════════════════════════════════");
-
-      return new Response(
-        JSON.stringify({
-          success: true,
-          message: "Notification processed",
-          order_id: orderId,
-          status: orderStatus,
-        }),
-        {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-          status: 200,
-        },
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 },
       );
     } else {
       // ========== UNKNOWN FORMAT ==========
