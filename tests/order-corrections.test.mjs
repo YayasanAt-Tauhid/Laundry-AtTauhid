@@ -18,6 +18,8 @@ test('paid order correction lifecycle, financial integrity and access control', 
   await db.exec(migration);
   const quantityMigration = await readFile(new URL('../supabase/migrations/20261006104031_paid_order_quantity_correction.sql', import.meta.url), 'utf8');
   await db.exec(quantityMigration);
+  const paidCancelWadiahMigration = await readFile(new URL('../supabase/migrations/20261007035026_paid_cancel_refund_wadiah.sql', import.meta.url), 'utf8');
+  await db.exec(paidCancelWadiahMigration);
   const uid = n => `00000000-0000-0000-0000-${String(n).padStart(12,'0')}`;
   const admin = uid(1), staff = uid(2), cashier = uid(3), parent = uid(4), otherParent = uid(5), partner = uid(6);
   const student = uid(11), otherStudent = uid(12), inactiveStudent = uid(13), partnerId = uid(20);
@@ -134,11 +136,22 @@ test('paid order correction lifecycle, financial integrity and access control', 
     await settle(c,'bank_transfer');
     await asOwner(async () => assert.equal((await row('select total_price from laundry_orders where id=$1',[id])).total_price,70000));
   });
-  await t.test('a verified refund may exclude rounding discount and gateway fees',async () => {
+  await t.test('paid cancellation refunds verified amount to wadiah and rejects other settlement methods',async () => {
     const id=await newOrder(); await asOwner(() => db.query('update laundry_orders set rounding_applied=490,admin_fee=491 where id=$1',[id]));
     await actor(staff); const c=await request(id,0,'cancel'); await actor(admin); await approve(c,69510);
     assert.equal((await row('select settlement_due from order_corrections where id=$1',[c])).settlement_due,69510);
-    await settle(c,'cash');
+    await actor(cashier); await mustFail(() => settle(c,'cash'), /harus dikembalikan ke saldo Wadiah/);
+    await mustFail(() => settle(c,'bank_transfer'), /harus dikembalikan ke saldo Wadiah/);
+    await mustFail(() => settle(c,'wadiah',false), /Persetujuan pelanggan/);
+    await settle(c,'wadiah',true);
+    await asOwner(async()=>{
+      const correction=await row('select settlement_method,settlement_status,wadiah_transaction_id from order_corrections where id=$1',[c]);
+      assert.equal(correction.settlement_method,'wadiah'); assert.equal(correction.settlement_status,'settled'); assert.ok(correction.wadiah_transaction_id);
+      const tx=await row('select transaction_type,amount,order_id from wadiah_transactions where id=$1',[correction.wadiah_transaction_id]);
+      assert.equal(tx.transaction_type,'refund'); assert.equal(tx.amount,69510); assert.equal(tx.order_id,id);
+      const order=await row('select status,total_price,paid_amount from laundry_orders where id=$1',[id]);
+      assert.equal(order.status,'DIBAYAR'); assert.equal(order.total_price,70000); assert.equal(order.paid_amount,70000);
+    });
   });
   await t.test('zero actual refund closes without crediting wadiah',async () => {
     const id=await newOrder(); await actor(staff); const c=await request(id,69900); await actor(admin); await approve(c,0);

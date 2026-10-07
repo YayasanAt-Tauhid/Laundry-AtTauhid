@@ -146,7 +146,7 @@ function PaidOrderCorrections() {
   };
   const openDetail = (row: CorrectionRow) => {
     setDetail(row); setReviewNote(""); setVerification(""); setRefund(String(Math.max(0, -row.delta)));
-    setRecipient(""); setMethod("cash"); setReference(""); setConsent(false);
+    setRecipient(""); setMethod(row.kind === "cancel" && row.delta < 0 ? "wadiah" : "cash"); setReference(""); setConsent(false);
   };
   const review = (approve: boolean) => act(() => supabase.rpc("review_order_correction", {
     p_correction_id: detail!.id, p_approve: approve, p_review_note: reviewNote,
@@ -203,6 +203,10 @@ function PaidOrderCorrections() {
           <Input id="corrected-quantity" type="number" min={selectedOrder.category === "kiloan" ? 0.01 : 1}
             step={selectedOrder.category === "kiloan" ? 0.01 : 1} value={quantity} onChange={e => setQuantity(e.target.value)} />
           <p className="text-sm text-muted-foreground">Data asli: {quantityText(selectedOrder.category, originalQuantity)} · Tarif pada tagihan asli: {rupiah(selectedOrder.price_per_unit)}/{selectedOrder.category === "kiloan" ? "kg" : "pcs"}. Nominal koreksi dihitung otomatis.</p>
+        </div>}
+        {kind === "cancel" && selectedOrder && <div className="rounded-lg border p-3 text-sm space-y-1">
+          <p className="font-medium">Pembatalan tagihan lunas</p>
+          <p>Pembayaran asli dan tagihan asli tetap tersimpan sebagai histori. Setelah admin memverifikasi nominal yang benar-benar refundable, pengembalian wajib masuk sebagai refund ke saldo Wadiah siswa.</p>
         </div>}
         {kind === "wrong_student" && <div className="space-y-2"><Label>Siswa yang seharusnya ditagih</Label>
           <StudentAutocomplete students={students.filter(s => s.id !== studentId).map(s => ({ ...s, parent_id: s.parent_id ?? "" }))} value={replacementStudent} onValueChange={setReplacementStudent} />
@@ -263,10 +267,13 @@ function PaidOrderCorrections() {
         </div>}
         {canSettle && detail.status === "approved" && detail.settlement_status === "pending" && <div className="border-t pt-4 space-y-3">
           <h3 className="font-semibold">{detail.delta < 0 ? "Selesaikan pengembalian" : "Terima pembayaran tambahan"} · {rupiah(detail.settlement_due ?? 0)}</h3>
-          <Select value={method} onValueChange={setMethod}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>
-            <SelectItem value="cash">Tunai</SelectItem><SelectItem value="bank_transfer">Transfer bank</SelectItem><SelectItem value="wadiah">Saldo wadiah</SelectItem>
-            {detail.delta < 0 && <SelectItem value="midtrans_manual">Refund melalui dashboard Midtrans</SelectItem>}
+          <Select value={method} onValueChange={setMethod} disabled={detail.kind === "cancel" && detail.delta < 0}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>
+            {detail.kind === "cancel" && detail.delta < 0 ? <SelectItem value="wadiah">Saldo wadiah</SelectItem> : <>
+              <SelectItem value="cash">Tunai</SelectItem><SelectItem value="bank_transfer">Transfer bank</SelectItem><SelectItem value="wadiah">Saldo wadiah</SelectItem>
+              {detail.delta < 0 && <SelectItem value="midtrans_manual">Refund melalui dashboard Midtrans</SelectItem>}
+            </>}
           </SelectContent></Select>
+          {detail.kind === "cancel" && detail.delta < 0 && <p className="text-sm text-muted-foreground">Standar pembatalan tagihan lunas: nilai refund yang sudah diverifikasi dikembalikan ke saldo Wadiah. Pembayaran asli tetap tersimpan.</p>}
           {method !== "wadiah" && <p className="text-sm text-muted-foreground">Tombol ini mencatat uang yang sudah diterima atau dikembalikan. Pastikan penyelesaian berhasil dan masukkan nomor bukti. Tombol ini tidak mengirim uang atau memanggil refund Midtrans.</p>}
           <Label htmlFor="settlement-reference">Nomor bukti / referensi penyelesaian</Label><Input id="settlement-reference" value={reference} onChange={e => setReference(e.target.value)} />
           {method === "wadiah" && <label className="flex items-start gap-2 text-sm"><Checkbox checked={consent} onCheckedChange={value => setConsent(value === true)} />
