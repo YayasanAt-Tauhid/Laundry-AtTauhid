@@ -67,3 +67,8 @@ npm run test:corrections
 npx tsc --noEmit -p tsconfig.app.json
 npm run build
 ```
+# Cetak dari laporan Tagihan
+
+Tombol **Cetak Laporan** di `/reports` → Tagihan mengambil ulang perhitungan pembayaran mitra saat dicetak untuk satu mitra dan rentang tanggal lengkap. Bagian rekonsiliasi memuat nilai sebelum penyesuaian, rincian koreksi dengan tanggal laundry asal, dan bersih pembayaran. Penyesuaian yang belum diverifikasi ditandai belum final; keputusan belum pernah dibayar ke mitra ditampilkan dengan nilai yang diperhitungkan nol.
+
+Cetak ulang untuk periode yang sudah dibayar memuat snapshot pembayaran dan rincian penyesuaiannya dari ledger, walaupun preview sisa pembayaran sudah nol. Pembayaran baru yang masih tersisa ditampilkan terpisah. Total daftar tagihan siswa tetap mengacu pada periode laundry asal. Cetak untuk semua mitra atau tanggal yang belum lengkap meminta pemilihan satu mitra dan periode untuk menampilkan rekonsiliasi.
