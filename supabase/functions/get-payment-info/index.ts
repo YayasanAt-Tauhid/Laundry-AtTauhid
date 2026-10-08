@@ -9,6 +9,8 @@
 // unguessable identifier that grants read-only access to payment info.
 // Sensitive data (student NIK, parent info) is NOT exposed.
 
+import { settlementAmounts, settled, midtransPaidAt } from "../_shared/midtrans-settlement.ts";
+
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -94,6 +96,7 @@ serve(async (req) => {
         .select(`
           id,
           total_price,
+          admin_fee,
           wadiah_used,
           status,
           midtrans_order_id,
@@ -120,7 +123,9 @@ serve(async (req) => {
               studentName: student?.name || "Siswa",
               studentClass: student?.class || "",
               orderCount: existingOrders.length,
-              totalAmount,
+              totalAmount: totalAmount + existingOrders.reduce((sum, o) => sum + Number(o.admin_fee || 0), 0),
+              totalBillAmount: totalAmount,
+              adminFee: existingOrders.reduce((sum, o) => sum + Number(o.admin_fee || 0), 0),
               orderItems: mapOrderItems(existingOrders),
             }),
             { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -184,6 +189,25 @@ serve(async (req) => {
         
         const statusData = await statusResponse.json();
         
+        if (statusResponse.ok && statusData.order_id === token && settled(statusData)) {
+          const amounts = settlementAmounts(statusData);
+          const { data: count, error } = await supabase.rpc("settle_laundry_payment_group", {
+            p_midtrans_order_id: token,
+            p_payment_method: statusData.payment_type,
+            p_paid_at: midtransPaidAt(statusData),
+            p_gross_amount: amounts.grossAmount,
+            p_admin_fee: amounts.adminFee,
+          });
+          if (error) throw error;
+          return new Response(JSON.stringify({
+            paid: true, reconciled: true, reconciledCount: count || 0,
+            studentName: student.name, studentClass: student.class,
+            orderCount: orders.length, totalAmount: amounts.grossAmount,
+            totalBillAmount: totalAmount,
+            adminFee: amounts.adminFee, paidAmount: amounts.grossAmount,
+            orderItems: mapOrderItems(orders),
+          }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
         const expiredStatuses = ["expire", "deny", "cancel"];
         if (statusResponse.ok && expiredStatuses.includes(statusData.transaction_status)) {
           const { data: reconciledCount, error: reconcileError } = await supabase.rpc(

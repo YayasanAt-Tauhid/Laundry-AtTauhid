@@ -14,6 +14,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // App identifier for multi-app Midtrans isolation
+import { settlementAmounts, settled, midtransPaidAt } from "../_shared/midtrans-settlement.ts";
+
 const APP_IDENTIFIER = "LAUNDRY-ATTAUHID";
 
 const corsHeaders = {
@@ -186,10 +188,19 @@ serve(async (req) => {
 
       let affected = 0;
       if (orderStatus === "DIBAYAR") {
-        const paidAt = midtransTimeToIso(
-          notification.settlement_time || notification.transaction_time,
-        ) || new Date().toISOString();
-        const parsedGrossAmount = Math.round(parseFloat(grossAmount));
+        const baseUrl = Deno.env.get("MIDTRANS_IS_PRODUCTION") === "true"
+          ? "https://api.midtrans.com" : "https://api.sandbox.midtrans.com";
+        const statusResponse = await fetch(baseUrl + "/v2/" + encodeURIComponent(orderId) + "/status", {
+          headers: { Accept: "application/json", Authorization: "Basic " + btoa(serverKey + ":") },
+        });
+        const verifiedStatus = await statusResponse.json();
+        if (!statusResponse.ok || verifiedStatus.order_id !== orderId ||
+            !settled(verifiedStatus) || Number(verifiedStatus.gross_amount) !== Number(grossAmount)) {
+          throw new Error("Status pembayaran belum terverifikasi di Midtrans");
+        }
+        const amounts = settlementAmounts(verifiedStatus);
+        const paidAt = midtransPaidAt(verifiedStatus);
+        const parsedGrossAmount = amounts.grossAmount;
         const { data, error } = await supabaseClient.rpc(
           "settle_laundry_payment_group",
           {
@@ -197,6 +208,7 @@ serve(async (req) => {
             p_payment_method: mapPaymentMethod(notification.payment_type),
             p_paid_at: paidAt,
             p_gross_amount: parsedGrossAmount,
+            p_admin_fee: amounts.adminFee,
           },
         );
         if (error) {
@@ -263,16 +275,16 @@ serve(async (req) => {
       error instanceof Error ? error.message : "Unknown error";
     console.error("Webhook error:", error);
 
-    // Return 200 to prevent Midtrans retry on our errors
+    // Return a retryable error; settlement is idempotent.
     return new Response(
       JSON.stringify({
         success: false,
         error: errorMessage,
-        message: "Error processing notification, but acknowledged",
+        message: "Error processing notification; retry required",
       }),
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 200,
+        status: 500,
       },
     );
   }
