@@ -174,35 +174,115 @@ serve(async (req) => {
     }
 
     // Never overwrite an existing gateway link blindly. Verify every linked
-    // transaction is terminal first, reconcile it, then refresh the snapshot.
+    // transaction before creating a replacement Snap token.
     const linkedIds = [...new Set(orders.map((o: any) => o.midtrans_order_id).filter(Boolean))];
+    let reusableMidtransOrderId: string | null = null;
     if (orders.some((o: any) => o.midtrans_snap_token && !o.midtrans_order_id)) {
       throw new Error("Tagihan memiliki token Midtrans tanpa Order ID. Rekonsiliasi admin diperlukan.");
     }
     if (linkedIds.length > 0) {
       const terminalStatuses = ["expire", "deny", "cancel"];
       const statusAuth = btoa(`${MIDTRANS_SERVER_KEY}:`);
+      const selectedOrderIds = new Set(orders.map((o: any) => o.id));
+      const statusResults: Array<{
+        linkedId: string;
+        kind: "not_found" | "terminal";
+        transactionStatus?: string;
+      }> = [];
+
+      // Validate the complete old payment group before touching any row.
       for (const linkedId of linkedIds) {
+        const { data: linkedOrders, error: linkedOrdersError } = await supabase
+          .from("laundry_orders")
+          .select("id")
+          .eq("midtrans_order_id", linkedId);
+        if (linkedOrdersError || !linkedOrders) {
+          throw new Error(`Gagal memeriksa kelompok tagihan untuk transaksi Midtrans ${linkedId}`);
+        }
+        const linkedOrderIds = new Set(linkedOrders.map((o: any) => o.id));
+        if (
+          linkedOrderIds.size !== selectedOrderIds.size ||
+          [...linkedOrderIds].some((id) => !selectedOrderIds.has(id))
+        ) {
+          throw new Error(
+            `Transaksi Midtrans ${linkedId} terhubung ke kelompok tagihan lain. Pilih seluruh tagihan terkait atau hubungi admin.`,
+          );
+        }
+
         const statusUrl = MIDTRANS_IS_PRODUCTION
           ? `https://api.midtrans.com/v2/${linkedId}/status`
           : `https://api.sandbox.midtrans.com/v2/${linkedId}/status`;
         const statusResponse = await fetch(statusUrl, {
           headers: { Accept: "application/json", Authorization: `Basic ${statusAuth}` },
         });
-        const statusData = await statusResponse.json();
-        if (!statusResponse.ok || !terminalStatuses.includes(statusData.transaction_status)) {
-          throw new Error(`Transaksi Midtrans ${linkedId} masih aktif dan tidak boleh ditimpa`);
+
+        let statusData: Record<string, unknown>;
+        try {
+          statusData = await statusResponse.json();
+        } catch {
+          throw new Error(
+            `Respons pemeriksaan status Midtrans ${linkedId} tidak valid (HTTP ${statusResponse.status}). Tagihan tidak diubah.`,
+          );
         }
+
+        // Midtrans documents HTTP 404 for a Snap session whose customer has
+        // not selected a payment method yet. Recreating Snap with the SAME
+        // order_id invalidates the old token and returns a replacement token.
+        if (statusResponse.status === 404) {
+          statusResults.push({ linkedId, kind: "not_found" });
+          continue;
+        }
+
+        if (!statusResponse.ok) {
+          throw new Error(
+            `Gagal memeriksa status transaksi Midtrans ${linkedId} (HTTP ${statusResponse.status}). Tagihan tidak diubah.`,
+          );
+        }
+
+        const transactionStatus = statusData.transaction_status;
+        if (typeof transactionStatus !== "string" || transactionStatus.length === 0) {
+          throw new Error(
+            `Status transaksi Midtrans ${linkedId} tidak dikenali. Tagihan tidak diubah.`,
+          );
+        }
+
+        if (!terminalStatuses.includes(transactionStatus)) {
+          throw new Error(
+            `Transaksi Midtrans ${linkedId} masih berstatus ${transactionStatus} dan tidak boleh ditimpa.`,
+          );
+        }
+
+        statusResults.push({
+          linkedId,
+          kind: "terminal",
+          transactionStatus,
+        });
+      }
+
+      const notFoundResults = statusResults.filter((result) => result.kind === "not_found");
+      if (notFoundResults.length > 0 && linkedIds.length > 1) {
+        throw new Error(
+          "Beberapa transaksi lama belum memiliki status Midtrans. Hubungi admin untuk rekonsiliasi sebelum membayar kembali.",
+        );
+      }
+      if (notFoundResults.length === 1) {
+        // Reuse the unutilized Order ID so Midtrans invalidates the old Snap token.
+        reusableMidtransOrderId = notFoundResults[0].linkedId;
+      }
+
+      for (const result of statusResults) {
+        if (result.kind !== "terminal") continue;
         const { error: reconcileError } = await supabase.rpc(
           "reconcile_expired_laundry_payment",
           {
-            p_midtrans_order_id: linkedId,
-            p_terminal_status: statusData.transaction_status,
+            p_midtrans_order_id: result.linkedId,
+            p_terminal_status: result.transactionStatus!,
             p_actor_id: ["admin", "staff", "cashier"].includes(userRole || "") ? userId : null,
           },
         );
         if (reconcileError) throw new Error(reconcileError.message);
       }
+
       const refreshed = await supabase
         .from("laundry_orders")
         .select("id, total_price, category, status, student_id, updated_at, wadiah_used, midtrans_order_id, midtrans_snap_token")
@@ -228,9 +308,9 @@ serve(async (req) => {
     );
 
     // Generate unique order ID for Midtrans
-    const midtransOrderId = isBulk
+    const midtransOrderId = reusableMidtransOrderId ?? (isBulk
       ? `${APP_IDENTIFIER}-BULK-${Date.now()}`
-      : `${APP_IDENTIFIER}-SINGLE-${orderId.substring(0, 8)}-${Date.now()}`;
+      : `${APP_IDENTIFIER}-SINGLE-${orderId.substring(0, 8)}-${Date.now()}`);
 
     // Prepare item details
     const itemName = isBulk
