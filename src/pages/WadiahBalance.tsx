@@ -14,6 +14,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -27,6 +28,8 @@ import {
 } from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Search,
   Loader2,
@@ -68,8 +71,14 @@ interface WadiahTransaction {
   balance_before: number;
   balance_after: number;
   notes: string | null;
+  order_id: string | null;
   created_at: string;
 }
+
+const isReversibleManualDeposit = (transaction: WadiahTransaction) =>
+  transaction.transaction_type === "deposit" &&
+  transaction.order_id === null &&
+  transaction.notes === "Setoran wadiah manual";
 
 interface SummaryStats {
   totalStudentsWithBalance: number;
@@ -145,6 +154,12 @@ const getTransactionTypeLabel = (type: string) => {
         color:
           "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300",
       };
+    case "adjustment":
+      return {
+        label: "Penyesuaian Saldo",
+        color:
+          "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300",
+      };
     default:
       return {
         label: type,
@@ -155,6 +170,7 @@ const getTransactionTypeLabel = (type: string) => {
 
 export default function WadiahBalance() {
   const { toast } = useToast();
+  const { userRole } = useAuth();
   const [wadiahData, setWadiahData] = useState<StudentWadiah[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -176,6 +192,10 @@ export default function WadiahBalance() {
   const [transactions, setTransactions] = useState<WadiahTransaction[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
   const [transactionDialogOpen, setTransactionDialogOpen] = useState(false);
+  const [reversedTransactionIds, setReversedTransactionIds] = useState<Set<string>>(new Set());
+  const [cancelingTransaction, setCancelingTransaction] = useState<WadiahTransaction | null>(null);
+  const [reversalReason, setReversalReason] = useState("");
+  const [submittingReversal, setSubmittingReversal] = useState(false);
 
   const fetchClasses = useCallback(async () => {
     try {
@@ -314,7 +334,23 @@ export default function WadiahBalance() {
 
       if (error) throw error;
 
-      setTransactions(data || []);
+      const rows = data || [];
+      setTransactions(rows);
+      if (userRole === "admin" && rows.length > 0) {
+        const candidateIds = rows.filter(isReversibleManualDeposit).map((row) => row.id);
+        if (candidateIds.length > 0) {
+          const { data: reversals, error: reversalError } = await supabase
+            .from("wadiah_deposit_reversals")
+            .select("original_transaction_id")
+            .in("original_transaction_id", candidateIds);
+          if (reversalError) throw reversalError;
+          setReversedTransactionIds(new Set((reversals || []).map((row) => row.original_transaction_id)));
+        } else {
+          setReversedTransactionIds(new Set());
+        }
+      } else {
+        setReversedTransactionIds(new Set());
+      }
     } catch (error) {
       console.error("Error fetching transactions:", error);
       toast({
@@ -344,6 +380,61 @@ export default function WadiahBalance() {
     setSelectedStudent(student);
     setTransactionDialogOpen(true);
     fetchTransactions(student.student_id);
+  };
+
+  const handleConfirmReversal = async () => {
+    if (!cancelingTransaction || !selectedStudent) return;
+    const reason = reversalReason.trim();
+    if (reason.length < 10 || reason.length > 500) {
+      toast({
+        variant: "destructive",
+        title: "Alasan belum valid",
+        description: "Alasan pembatalan harus 10 sampai 500 karakter.",
+      });
+      return;
+    }
+
+    setSubmittingReversal(true);
+    try {
+      const { error } = await supabase.rpc("reverse_manual_wadiah_deposit", {
+        p_transaction_id: cancelingTransaction.id,
+        p_reason: reason,
+      });
+      if (error) throw error;
+
+      const studentId = selectedStudent.student_id;
+      toast({
+        title: "Setoran berhasil dibatalkan",
+        description: `Saldo Wadiah dikurangi ${formatCurrency(cancelingTransaction.amount)}. Riwayat setoran asli tetap tersimpan.`,
+      });
+      setCancelingTransaction(null);
+      setReversalReason("");
+
+      await Promise.all([
+        fetchTransactions(studentId),
+        fetchWadiahData(),
+        fetchSummaryStats(),
+      ]);
+
+      const { data: balanceRow, error: balanceError } = await supabase
+        .from("student_wadiah_balance")
+        .select("balance")
+        .eq("student_id", studentId)
+        .single();
+      if (!balanceError && balanceRow) {
+        setSelectedStudent((current) =>
+          current ? { ...current, balance: balanceRow.balance } : current,
+        );
+      }
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Pembatalan gagal",
+        description: error instanceof Error ? error.message : "Terjadi kesalahan saat membatalkan setoran.",
+      });
+    } finally {
+      setSubmittingReversal(false);
+    }
   };
 
   const handleExportCSV = () => {
@@ -763,26 +854,113 @@ export default function WadiahBalance() {
                               )}
                             </div>
                           </div>
-                          <div className="text-right">
-                            <p
-                              className={`font-semibold ${
-                                isPositive
-                                  ? "text-green-600"
-                                  : "text-orange-600"
-                              }`}
-                            >
-                              {isPositive ? "+" : ""}
-                              {formatCurrency(tx.amount)}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              Saldo: {formatCurrency(tx.balance_after)}
-                            </p>
+                          <div className="flex flex-col items-end gap-2 text-right">
+                            <div>
+                              <p
+                                className={`font-semibold ${
+                                  isPositive
+                                    ? "text-green-600"
+                                    : "text-orange-600"
+                                }`}
+                              >
+                                {isPositive ? "+" : ""}
+                                {formatCurrency(tx.amount)}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                Saldo: {formatCurrency(tx.balance_after)}
+                              </p>
+                            </div>
+                            {userRole === "admin" && isReversibleManualDeposit(tx) && (
+                              reversedTransactionIds.has(tx.id) ? (
+                                <Badge variant="outline">Dibatalkan</Badge>
+                              ) : (
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={() => {
+                                    setCancelingTransaction(tx);
+                                    setReversalReason("");
+                                  }}
+                                >
+                                  Batalkan Setoran
+                                </Button>
+                              )
+                            )}
                           </div>
                         </div>
                       );
                     })}
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={cancelingTransaction !== null}
+        onOpenChange={(open) => {
+          if (!open && !submittingReversal) {
+            setCancelingTransaction(null);
+            setReversalReason("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Batalkan Setoran Wadiah</DialogTitle>
+            <DialogDescription>
+              Pembatalan akan mengurangi saldo siswa sebesar nilai setoran. Transaksi asli tidak dihapus dan tetap terlihat di riwayat.
+            </DialogDescription>
+          </DialogHeader>
+          {cancelingTransaction && (
+            <div className="space-y-4">
+              <div className="rounded-lg border bg-muted/40 p-3 text-sm">
+                <p className="font-medium">{selectedStudent?.student.name}</p>
+                <p className="text-muted-foreground">
+                  Nilai setoran: {formatCurrency(cancelingTransaction.amount)}
+                </p>
+                <p className="text-muted-foreground">
+                  Tanggal input: {formatDate(cancelingTransaction.created_at)}
+                </p>
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="wadiah-reversal-reason" className="text-sm font-medium">
+                  Alasan pembatalan
+                </label>
+                <Textarea
+                  id="wadiah-reversal-reason"
+                  value={reversalReason}
+                  onChange={(event) => setReversalReason(event.target.value)}
+                  placeholder="Contoh: salah input, dana tidak diterima..."
+                  minLength={10}
+                  maxLength={500}
+                  rows={4}
+                  disabled={submittingReversal}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Minimal 10 karakter. Saldo tidak akan dibuat negatif.
+                </p>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  disabled={submittingReversal}
+                  onClick={() => {
+                    setCancelingTransaction(null);
+                    setReversalReason("");
+                  }}
+                >
+                  Kembali
+                </Button>
+                <Button
+                  variant="destructive"
+                  disabled={submittingReversal || reversalReason.trim().length < 10}
+                  onClick={handleConfirmReversal}
+                >
+                  {submittingReversal ? "Memproses..." : "Konfirmasi Pembatalan"}
+                </Button>
               </div>
             </div>
           )}

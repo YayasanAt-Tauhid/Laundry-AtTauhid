@@ -268,7 +268,7 @@ export function useCashierReport({
         let wadiahQuery = supabase
           .from("wadiah_transactions")
           .select(`id, amount, transaction_type, created_at, student_id, notes, balance_before, balance_after, students (id, name, class, nik)`)
-          .in("transaction_type", ["change_deposit", "deposit"])
+          .in("transaction_type", ["change_deposit", "deposit", "adjustment"])
           .order("created_at", { ascending: false });
 
         if (period !== "all") {
@@ -289,6 +289,12 @@ export function useCashierReport({
               currentSummary.manualDepositTotal += tx.amount || 0;
               currentSummary.manualDepositCount++;
               manualDeposits.push(tx as WadiahDepositRecord);
+            } else if (
+              tx.transaction_type === "adjustment" &&
+              tx.notes?.startsWith("Pembatalan setoran Wadiah manual.")
+            ) {
+              // A reversed manual deposit was never actually received.
+              currentSummary.manualDepositTotal += tx.amount || 0;
             }
           });
 

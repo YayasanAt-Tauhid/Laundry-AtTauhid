@@ -254,12 +254,11 @@ export default function Reports() {
 
       if (error) throw error;
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const adjustments = await correctionReportEntries({ mode: "bills", start: billStartDate, end: billEndDate,
         partnerId: selectedPartnerId === "all" ? undefined : selectedPartnerId });
-      const orders: BillReportOrder[] = [...(data || []), ...adjustments].map((order: any) => ({
+      const orders: BillReportOrder[] = [...(data || []), ...adjustments].map((order) => ({
         id: order.id,
-        is_correction: order.is_correction === true,
+        is_correction: "is_correction" in order && order.is_correction === true,
         laundry_date: order.laundry_date,
         category: order.category,
         weight_kg: order.weight_kg,
@@ -543,7 +542,9 @@ export default function Reports() {
         .filter(
           (t) =>
             t.transaction_type === "deposit" ||
-            t.transaction_type === "change_deposit",
+            t.transaction_type === "change_deposit" ||
+            (t.transaction_type === "adjustment" &&
+              t.notes?.startsWith("Pembatalan setoran Wadiah manual.")),
         )
         .reduce((sum, t) => sum + (t.amount || 0), 0);
 
@@ -588,7 +589,9 @@ export default function Reports() {
           }
           if (
             tx.transaction_type === "deposit" ||
-            tx.transaction_type === "change_deposit"
+            tx.transaction_type === "change_deposit" ||
+            (tx.transaction_type === "adjustment" &&
+              tx.notes?.startsWith("Pembatalan setoran Wadiah manual."))
           ) {
             wadiahByClass[cls].topUp += tx.amount || 0;
           } else if (tx.transaction_type === "payment") {

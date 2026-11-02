@@ -664,6 +664,61 @@ export type Database = {
         }
         Relationships: []
       }
+      wadiah_deposit_reversals: {
+        Row: {
+          amount: number
+          created_at: string
+          created_by: string
+          id: string
+          original_transaction_id: string
+          reason: string
+          reversal_transaction_id: string
+          student_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          created_by: string
+          id?: string
+          original_transaction_id: string
+          reason: string
+          reversal_transaction_id: string
+          student_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          created_by?: string
+          id?: string
+          original_transaction_id?: string
+          reason?: string
+          reversal_transaction_id?: string
+          student_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wadiah_deposit_reversals_original_transaction_id_fkey"
+            columns: ["original_transaction_id"]
+            isOneToOne: true
+            referencedRelation: "wadiah_transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wadiah_deposit_reversals_reversal_transaction_id_fkey"
+            columns: ["reversal_transaction_id"]
+            isOneToOne: true
+            referencedRelation: "wadiah_transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wadiah_deposit_reversals_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       wadiah_transactions: {
         Row: {
           amount: number
@@ -881,6 +936,10 @@ export type Database = {
       parent_use_wadiah_for_payment: {
         Args: { p_amount: number; p_order_id: string; p_student_id: string }
         Returns: Json
+      }
+      reverse_manual_wadiah_deposit: {
+        Args: { p_reason: string; p_transaction_id: string }
+        Returns: string
       }
       process_wadiah_transaction: {
         Args: {

@@ -73,6 +73,10 @@ interface WadiahTransaction {
   } | null;
 }
 
+const isNegativeBalanceTransaction = (transaction: Pick<WadiahTransaction, "transaction_type" | "amount">) =>
+  transaction.transaction_type === "payment" ||
+  (transaction.transaction_type === "adjustment" && transaction.amount < 0);
+
 interface WadiahBalance {
   id: string;
   student_id: string;
@@ -280,7 +284,7 @@ export function CashierWadiahReport({
         setTotalCount(count || 0);
       } else {
         // Fetch balances
-        let query = supabase
+        const query = supabase
           .from("student_wadiah_balance")
           .select(
             `
@@ -478,7 +482,10 @@ export function CashierWadiahReport({
     const txDate = new Date(tx.created_at);
     const typeConfig = TRANSACTION_TYPE_CONFIG[tx.transaction_type];
     const typeLabel = typeConfig?.label || tx.transaction_type;
-    const isDebit = tx.transaction_type === "payment" || tx.transaction_type === "refund";
+    const isDebit =
+      tx.transaction_type === "payment" ||
+      tx.transaction_type === "refund" ||
+      (tx.transaction_type === "adjustment" && tx.amount < 0);
     const receiptNumber = `WDH-${tx.id.slice(-8).toUpperCase()}`;
 
     printWindow.document.write(`
@@ -527,7 +534,7 @@ export function CashierWadiahReport({
           </div>
           <div class="total-section">
             <div class="total-row"><span>Saldo Sebelum:</span><span>${formatCurrency(tx.balance_before)}</span></div>
-            <div class="total-row grand"><span>${isDebit ? "Penggunaan:" : "Masuk:"}</span><span>${isDebit ? "-" : "+"}${formatCurrency(tx.amount)}</span></div>
+            <div class="total-row grand"><span>${isDebit ? "Penggunaan:" : "Masuk:"}</span><span>${isDebit ? "-" : "+"}${formatCurrency(Math.abs(tx.amount))}</span></div>
             <div class="total-row grand"><span>Saldo Sesudah:</span><span>${formatCurrency(tx.balance_after)}</span></div>
           </div>
           ${tx.notes ? `<div class="notes">Catatan: ${tx.notes}</div>` : ""}
@@ -807,9 +814,9 @@ export function CashierWadiahReport({
                           </TableCell>
                           <TableCell className="text-right font-medium">
                             <span className={
-                              tx.transaction_type === "payment" ? "text-red-600" : "text-green-600"
+                              isNegativeBalanceTransaction(tx) ? "text-red-600" : "text-green-600"
                             }>
-                              {tx.transaction_type === "payment" ? "-" : "+"}{formatCurrency(tx.amount)}
+                              {isNegativeBalanceTransaction(tx) ? "-" : "+"}{formatCurrency(Math.abs(tx.amount))}
                             </span>
                           </TableCell>
                           <TableCell className="text-right text-muted-foreground">
@@ -972,9 +979,9 @@ export function CashierWadiahReport({
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Jumlah</span>
                   <span className={
-                    selectedTransaction.transaction_type === "payment" ? "text-red-600 font-medium" : "text-green-600 font-medium"
+                    isNegativeBalanceTransaction(selectedTransaction) ? "text-red-600 font-medium" : "text-green-600 font-medium"
                   }>
-                    {selectedTransaction.transaction_type === "payment" ? "-" : "+"}{formatCurrency(selectedTransaction.amount)}
+                    {isNegativeBalanceTransaction(selectedTransaction) ? "-" : "+"}{formatCurrency(Math.abs(selectedTransaction.amount))}
                   </span>
                 </div>
                 <div className="flex justify-between text-lg font-bold border-t pt-2">
