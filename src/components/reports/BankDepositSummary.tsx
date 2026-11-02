@@ -35,13 +35,15 @@ export function BankDepositSummary({ summary }: BankDepositSummaryProps) {
         </div>
 
         {/* Manual Deposit */}
-        {summary.manualDepositTotal > 0 && (
-          <div className="flex items-center justify-between p-2 rounded-lg bg-emerald-500/10">
+        {summary.manualDepositTotal !== 0 && (
+          <div className={`flex items-center justify-between p-2 rounded-lg ${summary.manualDepositTotal < 0 ? "bg-red-500/10" : "bg-emerald-500/10"}`}>
             <div className="flex items-center gap-2">
-              <PiggyBank className="h-4 w-4 text-emerald-600" />
-              <span className="text-sm">Setoran Wadiah ({summary.manualDepositCount}x)</span>
+              <PiggyBank className={`h-4 w-4 ${summary.manualDepositTotal < 0 ? "text-red-600" : "text-emerald-600"}`} />
+              <span className="text-sm">Setoran Wadiah Manual (net)</span>
             </div>
-            <p className="font-medium text-emerald-600">+ {formatCurrency(summary.manualDepositTotal)}</p>
+            <p className={`font-medium ${summary.manualDepositTotal < 0 ? "text-red-600" : "text-emerald-600"}`}>
+              {summary.manualDepositTotal < 0 ? "- " : "+ "}{formatCurrency(Math.abs(summary.manualDepositTotal))}
+            </p>
           </div>
         )}
 

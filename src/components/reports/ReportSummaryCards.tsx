@@ -98,7 +98,7 @@ export function ReportSummaryCards({ summary, showWadiahCards = true }: ReportSu
       </div>
 
       {/* Wadiah Stats */}
-      {showWadiahCards && (summary.wadiahUsedTotal > 0 || summary.wadiahDepositTotal > 0 || summary.manualDepositTotal > 0) && (
+      {showWadiahCards && (summary.wadiahUsedTotal > 0 || summary.wadiahDepositTotal > 0 || summary.manualDepositTotal !== 0) && (
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
           {summary.wadiahUsedTotal > 0 && (
             <Card className="border-amber-500/30">
@@ -136,8 +136,8 @@ export function ReportSummaryCards({ summary, showWadiahCards = true }: ReportSu
             </Card>
           )}
 
-          {summary.manualDepositTotal > 0 && (
-            <Card className="border-emerald-500/30">
+          {summary.manualDepositTotal !== 0 && (
+            <Card className={summary.manualDepositTotal < 0 ? "border-red-500/30" : "border-emerald-500/30"}>
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
                   <div className="p-2 rounded-lg bg-emerald-500/20">
@@ -145,10 +145,10 @@ export function ReportSummaryCards({ summary, showWadiahCards = true }: ReportSu
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground">
-                      Setoran Manual ({summary.manualDepositCount}x)
+                      Setoran Manual Bersih
                     </p>
-                    <p className="font-bold text-emerald-600">
-                      {formatCurrency(summary.manualDepositTotal)}
+                    <p className={summary.manualDepositTotal < 0 ? "font-bold text-red-600" : "font-bold text-emerald-600"}>
+                      {summary.manualDepositTotal < 0 ? "- " : "+ "}{formatCurrency(Math.abs(summary.manualDepositTotal))}
                     </p>
                   </div>
                 </div>
