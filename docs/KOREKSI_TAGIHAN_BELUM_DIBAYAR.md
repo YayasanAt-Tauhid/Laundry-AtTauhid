@@ -34,7 +34,7 @@ Pembatalan hanya berlaku untuk status belum dibayar: **DRAFT**, **MENUNGGU_APPRO
 
 ## Rekonsiliasi tautan Midtrans kedaluwarsa
 
-Sebelum koreksi atau pembatalan, tautan Midtrans yang masih menempel harus diperiksa ke Midtrans. Hanya status terminal `expire`, `cancel`, atau `deny` yang boleh melepaskan `midtrans_order_id` dan `midtrans_snap_token`. Pelepasan dicatat ke `audit_logs`. Token baru tidak boleh menimpa transaksi lama yang masih aktif.
+Sebelum koreksi atau pembatalan, tautan Midtrans yang masih menempel harus diperiksa ke Midtrans. Pemeriksaan harus membaca HTTP status dan `status_code` di JSON respons Get Status; `status_code` 200/201 adalah respons transaksi valid, `404` berarti order tidak ditemukan, sedangkan kode lain atau respons tidak lengkap harus ditolak (fail-closed). Hanya status terminal `expire`, `cancel`, atau `deny` yang boleh melepaskan `midtrans_order_id` dan `midtrans_snap_token`. Pelepasan dicatat ke `audit_logs`. Token baru tidak boleh menimpa transaksi lama yang masih aktif.
 
 ## Pembatalan tagihan yang sudah memakai Wadiah
 
