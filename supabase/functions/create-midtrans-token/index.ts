@@ -13,6 +13,7 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { attachPaymentSnapshot } from "../_shared/attach-payment.ts";
+import { parseMidtransStatusResponse } from "../_shared/midtrans-status-response.mjs";
 
 const APP_IDENTIFIER = "LAUNDRY-ATTAUHID";
 
@@ -216,35 +217,33 @@ serve(async (req) => {
           headers: { Accept: "application/json", Authorization: `Basic ${statusAuth}` },
         });
 
-        let statusData: Record<string, unknown>;
-        try {
-          statusData = await statusResponse.json();
-        } catch {
-          throw new Error(
-            `Respons pemeriksaan status Midtrans ${linkedId} tidak valid (HTTP ${statusResponse.status}). Tagihan tidak diubah.`,
-          );
+        let statusData: unknown = null;
+        const statusBody = await statusResponse.text();
+        if (statusBody.trim().length > 0) {
+          try {
+            statusData = JSON.parse(statusBody);
+          } catch {
+            // A genuine HTTP 404 is sufficient to classify an unused Snap
+            // session. Other responses must contain valid JSON.
+            if (statusResponse.status !== 404) {
+              throw new Error(
+                `Respons pemeriksaan status Midtrans ${linkedId} tidak valid (HTTP ${statusResponse.status}). Tagihan tidak diubah.`,
+              );
+            }
+          }
         }
 
-        // Midtrans documents HTTP 404 for a Snap session whose customer has
-        // not selected a payment method yet. Recreating Snap with the SAME
-        // order_id invalidates the old token and returns a replacement token.
-        if (statusResponse.status === 404) {
+        // Midtrans exposes an API-level status_code in its JSON response as
+        // well as the HTTP status. In particular, not-found can be represented
+        // by status_code=404 even when the HTTP response itself is successful.
+        // Only an explicit 404 is treated as an unused Snap session.
+        const parsedStatus = parseMidtransStatusResponse(statusResponse.status, statusData);
+        if (parsedStatus.kind === "not_found") {
           statusResults.push({ linkedId, kind: "not_found" });
           continue;
         }
 
-        if (!statusResponse.ok) {
-          throw new Error(
-            `Gagal memeriksa status transaksi Midtrans ${linkedId} (HTTP ${statusResponse.status}). Tagihan tidak diubah.`,
-          );
-        }
-
-        const transactionStatus = statusData.transaction_status;
-        if (typeof transactionStatus !== "string" || transactionStatus.length === 0) {
-          throw new Error(
-            `Status transaksi Midtrans ${linkedId} tidak dikenali. Tagihan tidak diubah.`,
-          );
-        }
+        const transactionStatus = parsedStatus.transactionStatus;
 
         if (!terminalStatuses.includes(transactionStatus)) {
           throw new Error(
