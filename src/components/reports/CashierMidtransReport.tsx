@@ -44,7 +44,9 @@ import {
   XCircle,
   AlertCircle,
   CalendarRange,
+  FileSpreadsheet,
 } from "lucide-react";
+import * as XLSX from "xlsx-js-style";
 import { format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
 import {
@@ -55,6 +57,21 @@ import {
 } from "@/components/ui/dialog";
 import { LAUNDRY_CATEGORIES } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import {
+  resolveMidtransDateRange,
+  validateMidtransExportRange,
+  applyMidtransFilters,
+  filterMidtransBySearch,
+  buildMidtransExportRows,
+  summarizeMidtransExport,
+  buildMidtransExportFilename,
+  describeMidtransPeriod,
+  describeMidtransDateBasis,
+  MIDTRANS_EXPORT_HEADERS,
+  type MidtransDateBasis,
+  type MidtransPeriod,
+  type MidtransStatusFilter,
+} from "@/utils/midtrans-export";
 
 // Types
 interface MidtransPayment {
@@ -98,6 +115,26 @@ interface SummaryData {
 }
 
 const PAGE_SIZE = 15;
+const EXPORT_BATCH_SIZE = 1000;
+
+const PAYMENT_SELECT = `
+          id,
+          midtrans_order_id,
+          midtrans_snap_token,
+          total_price,
+          admin_fee,
+          payment_method,
+          status,
+          paid_at,
+          created_at,
+          laundry_date,
+          wadiah_used,
+          category,
+          weight_kg,
+          item_count,
+          students (id, name, class, nik),
+          laundry_partners (name)
+        `;
 
 // Payment method labels
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
@@ -173,10 +210,12 @@ export function CashierMidtransReport() {
   const [currentPage, setCurrentPage] = useState(0);
   
   // Filters
-  const [period, setPeriod] = useState("today");
+  const [period, setPeriod] = useState<MidtransPeriod>("today");
+  const [dateBasis, setDateBasis] = useState<MidtransDateBasis>("paid_at");
+  const [exporting, setExporting] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterPaymentMethod, setFilterPaymentMethod] = useState<string>("all");
-  const [filterStatus, setFilterStatus] = useState<string>("success");
+  const [filterStatus, setFilterStatus] = useState<MidtransStatusFilter>("success");
   const [customStartDate, setCustomStartDate] = useState<Date | undefined>();
   const [customEndDate, setCustomEndDate] = useState<Date | undefined>();
   
@@ -184,40 +223,7 @@ export function CashierMidtransReport() {
   const [selectedPayment, setSelectedPayment] = useState<MidtransPayment | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
 
-  const getDateRange = () => {
-    const now = new Date();
-    let startDate: Date;
-    let endDate = new Date(now);
-
-    switch (period) {
-      case "today":
-        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        break;
-      case "yesterday":
-        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-        endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        break;
-      case "week":
-        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        break;
-      case "month":
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        break;
-      case "custom":
-        if (customStartDate && customEndDate) {
-          startDate = new Date(customStartDate.getFullYear(), customStartDate.getMonth(), customStartDate.getDate());
-          endDate = new Date(customEndDate.getFullYear(), customEndDate.getMonth(), customEndDate.getDate() + 1);
-        } else {
-          startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        }
-        break;
-      case "all":
-      default:
-        startDate = new Date(0);
-    }
-
-    return { startDate, endDate };
-  };
+  const getDateRange = () => resolveMidtransDateRange(period, customStartDate, customEndDate);
 
   const fetchPayments = async () => {
     setLoading(true);
@@ -229,53 +235,17 @@ export function CashierMidtransReport() {
       // Build query for online payments (paid by parents via Midtrans)
       let query = supabase
         .from("laundry_orders")
-        .select(
-          `
-          id,
-          midtrans_order_id,
-          midtrans_snap_token,
-          total_price,
-          admin_fee,
-          payment_method,
-          status,
-          paid_at,
-          created_at,
-          laundry_date,
-          wadiah_used,
-          category,
-          weight_kg,
-          item_count,
-          students (id, name, class, nik),
-          laundry_partners (name)
-        `,
-          { count: "exact" }
-        )
+        .select(PAYMENT_SELECT, { count: "exact" })
         .not("midtrans_order_id", "is", null);
-      
-      // Apply status filter
-      if (filterStatus === "success") {
-        query = query.in("status", ["DIBAYAR", "SELESAI"]);
-      } else if (filterStatus === "pending") {
-        query = query.eq("status", "MENUNGGU_PEMBAYARAN");
-      }
 
-      // Apply date filter
-      if (period !== "all") {
-        if (filterStatus === "success") {
-          query = query
-            .gte("paid_at", startDate.toISOString())
-            .lt("paid_at", endDate.toISOString());
-        } else {
-          query = query
-            .gte("created_at", startDate.toISOString())
-            .lt("created_at", endDate.toISOString());
-        }
-      }
-
-      // Apply payment method filter
-      if (filterPaymentMethod !== "all") {
-        query = query.eq("payment_method", filterPaymentMethod);
-      }
+      // Status, date range (paid_at / created_at) and payment method filters
+      query = applyMidtransFilters(query, {
+        status: filterStatus,
+        paymentMethod: filterPaymentMethod,
+        period,
+        dateBasis,
+        range: { startDate, endDate },
+      });
 
       // Sorting
       query = query.order("paid_at", { ascending: false, nullsFirst: false });
@@ -285,16 +255,7 @@ export function CashierMidtransReport() {
       if (error) throw error;
 
       // Filter by search query in memory
-      let filteredData = (data || []) as MidtransPayment[];
-      if (searchQuery) {
-        const lowerQuery = searchQuery.toLowerCase();
-        filteredData = filteredData.filter(
-          (p) =>
-            p.students?.name?.toLowerCase().includes(lowerQuery) ||
-            p.students?.class?.toLowerCase().includes(lowerQuery) ||
-            p.midtrans_order_id?.toLowerCase().includes(lowerQuery)
-        );
-      }
+      const filteredData = filterMidtransBySearch((data || []) as MidtransPayment[], searchQuery);
 
       setPayments(filteredData);
       setTotalCount(count || 0);
@@ -315,28 +276,25 @@ export function CashierMidtransReport() {
 
   const fetchSummary = async (startDate: Date, endDate: Date) => {
     try {
-      // Query for successful online payments
-      let successQuery = supabase
-        .from("laundry_orders")
-        .select("total_price, admin_fee, payment_method")
-        .in("status", ["DIBAYAR", "SELESAI"])
-        .not("midtrans_order_id", "is", null);
+      const range = { startDate, endDate };
 
-      // Query for pending payments
-      let pendingQuery = supabase
-        .from("laundry_orders")
-        .select("total_price")
-        .eq("status", "MENUNGGU_PEMBAYARAN")
-        .not("midtrans_order_id", "is", null);
+      // Query for successful online payments (dated by the selected basis)
+      const successQuery = applyMidtransFilters(
+        supabase
+          .from("laundry_orders")
+          .select("total_price, admin_fee, payment_method")
+          .not("midtrans_order_id", "is", null),
+        { status: "success", paymentMethod: "all", period, dateBasis, range }
+      );
 
-      if (period !== "all") {
-        successQuery = successQuery
-          .gte("paid_at", startDate.toISOString())
-          .lt("paid_at", endDate.toISOString());
-        pendingQuery = pendingQuery
-          .gte("created_at", startDate.toISOString())
-          .lt("created_at", endDate.toISOString());
-      }
+      // Query for pending payments (always dated by created_at)
+      const pendingQuery = applyMidtransFilters(
+        supabase
+          .from("laundry_orders")
+          .select("total_price")
+          .not("midtrans_order_id", "is", null),
+        { status: "pending", paymentMethod: "all", period, dateBasis, range }
+      );
 
       const [successResult, pendingResult] = await Promise.all([
         successQuery,
@@ -397,7 +355,7 @@ export function CashierMidtransReport() {
 
   useEffect(() => {
     fetchPayments();
-  }, [period, currentPage, filterPaymentMethod, filterStatus, searchQuery, customStartDate, customEndDate]);
+  }, [period, dateBasis, currentPage, filterPaymentMethod, filterStatus, searchQuery, customStartDate, customEndDate]);
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
@@ -429,6 +387,157 @@ export function CashierMidtransReport() {
     link.href = URL.createObjectURL(blob);
     link.download = `laporan-midtrans-kasir-${format(new Date(), "yyyyMMdd")}.csv`;
     link.click();
+  };
+
+
+  // Fetch every row matching the active filters (not just the visible page).
+  const fetchAllForExport = async (range: { startDate: Date; endDate: Date }) => {
+    const all: MidtransPayment[] = [];
+    for (let from = 0; ; from += EXPORT_BATCH_SIZE) {
+      let query = supabase
+        .from("laundry_orders")
+        .select(PAYMENT_SELECT)
+        .not("midtrans_order_id", "is", null);
+
+      query = applyMidtransFilters(query, {
+        status: filterStatus,
+        paymentMethod: filterPaymentMethod,
+        period,
+        dateBasis,
+        range,
+      });
+
+      // "id" as tie-breaker keeps batches stable (no skipped/duplicated rows)
+      const { data, error } = await query
+        .order("paid_at", { ascending: false, nullsFirst: false })
+        .order("id", { ascending: true })
+        .range(from, from + EXPORT_BATCH_SIZE - 1);
+
+      if (error) throw error;
+      const batch = (data || []) as MidtransPayment[];
+      all.push(...batch);
+      if (batch.length < EXPORT_BATCH_SIZE) break;
+    }
+    return filterMidtransBySearch(all, searchQuery);
+  };
+
+  const handleExportExcel = async () => {
+    const rangeError = validateMidtransExportRange(period, customStartDate, customEndDate);
+    if (rangeError) {
+      toast({ variant: "destructive", title: "Rentang tanggal belum lengkap", description: rangeError });
+      return;
+    }
+
+    setExporting(true);
+    try {
+      const range = getDateRange();
+      const rows = await fetchAllForExport(range);
+
+      if (rows.length === 0) {
+        toast({
+          variant: "destructive",
+          title: "Tidak ada data",
+          description: "Tidak ada transaksi Midtrans pada rentang tanggal yang dipilih",
+        });
+        return;
+      }
+
+      const categoryLabels = Object.fromEntries(
+        Object.entries(LAUNDRY_CATEGORIES).map(([key, value]) => [key, value.label])
+      );
+      const dataRows = buildMidtransExportRows(rows, {
+        categoryLabels,
+        methodLabels: PAYMENT_METHOD_LABELS,
+      });
+      const totals = summarizeMidtransExport(rows);
+
+      // Sheet 1: Transaksi
+      const wsData = [[...MIDTRANS_EXPORT_HEADERS], ...dataRows];
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      const moneyColumns = ["Total Tagihan", "Wadiah Dipakai", "Biaya Admin", "Total Dibayar"].map((h) =>
+        (MIDTRANS_EXPORT_HEADERS as readonly string[]).indexOf(h)
+      );
+      MIDTRANS_EXPORT_HEADERS.forEach((_, c) => {
+        const headerCell = ws[XLSX.utils.encode_cell({ r: 0, c })];
+        if (headerCell) {
+          headerCell.s = {
+            font: { bold: true, color: { rgb: "FFFFFF" } },
+            fill: { fgColor: { rgb: "1F4E78" } },
+            alignment: { horizontal: "center", vertical: "center" },
+          };
+        }
+      });
+      for (let r = 1; r <= dataRows.length; r++) {
+        moneyColumns.forEach((c) => {
+          const cell = ws[XLSX.utils.encode_cell({ r, c })];
+          if (cell) cell.z = "#,##0";
+        });
+      }
+      ws["!cols"] = [
+        { wch: 5 }, { wch: 17 }, { wch: 17 }, { wch: 32 }, { wch: 24 }, { wch: 16 }, { wch: 10 },
+        { wch: 14 }, { wch: 10 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 14 },
+        { wch: 16 }, { wch: 10 },
+      ];
+      ws["!autofilter"] = {
+        ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: dataRows.length, c: MIDTRANS_EXPORT_HEADERS.length - 1 } }),
+      };
+
+      // Sheet 2: Ringkasan
+      const summaryData: (string | number)[][] = [
+        ["Laporan Pembayaran Midtrans - At-Tauhid Laundry"],
+        [],
+        ["Periode", describeMidtransPeriod(period, range)],
+        ["Dasar Tanggal", describeMidtransDateBasis(filterStatus, dateBasis)],
+        ["Status", filterStatus === "success" ? "Sukses" : filterStatus === "pending" ? "Pending" : "Semua"],
+        [
+          "Metode",
+          filterPaymentMethod === "all" ? "Semua Metode" : PAYMENT_METHOD_LABELS[filterPaymentMethod] || filterPaymentMethod,
+        ],
+        ["Pencarian", searchQuery.trim() || "-"],
+        ["Diekspor", format(new Date(), "dd/MM/yyyy HH:mm")],
+        [],
+        ["Total Baris", totals.totalRows],
+        ["Transaksi Sukses", totals.successCount],
+        ["Total Tagihan (Sukses)", totals.successAmount],
+        ["Wadiah Dipakai (Sukses)", totals.successWadiah],
+        ["Biaya Admin (Sukses)", totals.successAdminFee],
+        ["Total Dibayar (Sukses)", totals.successPaid],
+        ["Transaksi Pending", totals.pendingCount],
+        ["Total Tagihan (Pending)", totals.pendingAmount],
+      ];
+      const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
+      wsSummary["A1"].s = { font: { bold: true, sz: 14 } };
+      for (let r = 9; r < summaryData.length; r++) {
+        const label = wsSummary[XLSX.utils.encode_cell({ r, c: 0 })];
+        if (label) label.s = { font: { bold: true } };
+        const value = wsSummary[XLSX.utils.encode_cell({ r, c: 1 })];
+        if (value && typeof value.v === "number") value.z = "#,##0";
+      }
+      for (let r = 2; r <= 7; r++) {
+        const label = wsSummary[XLSX.utils.encode_cell({ r, c: 0 })];
+        if (label) label.s = { font: { bold: true } };
+      }
+      wsSummary["!cols"] = [{ wch: 28 }, { wch: 36 }];
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Transaksi");
+      XLSX.utils.book_append_sheet(wb, wsSummary, "Ringkasan");
+      XLSX.writeFile(wb, buildMidtransExportFilename(period, range));
+
+      toast({
+        title: "Export Excel berhasil",
+        description: `${rows.length} transaksi (${describeMidtransPeriod(period, range)}) telah diunduh`,
+      });
+    } catch (error) {
+      console.error("Error exporting Midtrans report:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Gagal mengekspor laporan Midtrans ke Excel",
+      });
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
@@ -493,7 +602,7 @@ export function CashierMidtransReport() {
         <CardContent className="pt-6">
           <div className="flex flex-wrap gap-4">
             <div className="flex-1 min-w-[200px]">
-              <Select value={period} onValueChange={(v) => { setPeriod(v); setCurrentPage(0); if (v !== "custom") { setCustomStartDate(undefined); setCustomEndDate(undefined); } }}>
+              <Select value={period} onValueChange={(v) => { setPeriod(v as MidtransPeriod); setCurrentPage(0); if (v !== "custom") { setCustomStartDate(undefined); setCustomEndDate(undefined); } }}>
                 <SelectTrigger>
                   <SelectValue placeholder="Pilih Periode" />
                 </SelectTrigger>
@@ -507,6 +616,25 @@ export function CashierMidtransReport() {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Date basis: which date column the range applies to */}
+            {period !== "all" && (
+              <div className="flex-1 min-w-[190px]">
+                <Select
+                  value={filterStatus === "pending" ? "created_at" : dateBasis}
+                  onValueChange={(v) => { setDateBasis(v as MidtransDateBasis); setCurrentPage(0); }}
+                  disabled={filterStatus === "pending"}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Dasar Tanggal" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="paid_at">Tanggal Bayar (paid_at)</SelectItem>
+                    <SelectItem value="created_at">Tanggal Dibuat (created_at)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             {/* Custom Date Pickers */}
             {period === "custom" && (
@@ -566,7 +694,7 @@ export function CashierMidtransReport() {
             )}
 
             <div className="flex-1 min-w-[150px]">
-              <Select value={filterStatus} onValueChange={(v) => { setFilterStatus(v); setCurrentPage(0); }}>
+              <Select value={filterStatus} onValueChange={(v) => { setFilterStatus(v as MidtransStatusFilter); setCurrentPage(0); }}>
                 <SelectTrigger>
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
@@ -608,6 +736,15 @@ export function CashierMidtransReport() {
             <Button variant="outline" onClick={handleExportCSV} disabled={payments.length === 0}>
               <Download className="h-4 w-4 mr-2" />
               Export CSV
+            </Button>
+
+            <Button onClick={handleExportExcel} disabled={exporting || loading}>
+              {exporting ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <FileSpreadsheet className="h-4 w-4 mr-2" />
+              )}
+              Export Excel
             </Button>
           </div>
         </CardContent>
